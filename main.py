@@ -94,8 +94,8 @@ async def on_message(message):
         if params[1] == 'aseta':
             set_personal_info(message, params)
 
-        if user_in_db(message.author.id):
-            user = db.collection('user').document(str(message.author.id)).get().to_dict()
+        user = get_user_dict(message.author.id)
+        if user != None:
             await message.author.send(f'Nimi: {user["name"]}\nMassa: {user["mass"]}\nSukupuoli: {user["sex"]}')
         else:
             await message.author.send('Et ole aiemmin käyttänyt palvelujani. Jos haluat asettaa tietosi, lähetä "%tiedot aseta <massa[kg]> <sukupuoli[m/f]>"')
@@ -122,6 +122,7 @@ def user_in_db(uid):
         return False
 
 def get_user_dict(uid):
+    #print(db.collection('users').document(str(uid)).get().to_dict())
     return db.collection('users').document(str(uid)).get().to_dict()
 
 
@@ -141,6 +142,7 @@ def set_personal_info(message, params):
     if not user_in_db(message.author.id):
         add_user(message)
 
+    print([float(params[2]), params[3]])
     update_user_base_info(message, [float(params[2]), params[3]])
     update_user_guild_info(message)
 
@@ -234,7 +236,7 @@ def update_user_base_info(message, params=[None, None]):
 
     if (user_dict['name'] != message.author.name) or ((params[0] != None) and (params[0] != user_dict['mass'])) or ((params[1] != None) and (params[0] != user_dict['sex'])):
         user_ref = db.collection('users').document(str(uid))
-        user_ref.update({'name': message.author.name, 'mass': (params[0] or user_dict['mass']), 'sex': (params[1] or user_dict['sex'])})
+        user_ref.update({'name': message.author.name, 'mass': float(params[0] or user_dict['mass']), 'sex': (params[1] or user_dict['sex'])})
 
 
 def update_user_guild_info(message):
@@ -242,7 +244,7 @@ def update_user_guild_info(message):
 
     # If message is sent from a dm channel, author is instance of user, not member. User doesn't have nick attribute
     if (isinstance(message.author, discord.Member)):
-        gid = message.author.guild.id
+        gid = str(message.author.guild.id)
 
         user = get_user_dict(uid)
         guild_users = get_guild_users(gid)
@@ -260,8 +262,8 @@ def update_user_guild_info(message):
         if user_modified:
             db.collection('users').document(str(uid)).set(user)
 
-        if uid not in guild_users:
-            db.collection('guilds').document(str(gid)).set({'members': guild_users.append(uid)})
+        if guild_users == None or uid not in guild_users:
+            db.collection('guilds').document(str(gid)).set({'members': (guild_users or []).append(uid)})
 
 
 def add_user(message):
@@ -349,14 +351,15 @@ def per_mille(user):
         return 0, 0
 
     user_dict = get_user_dict(user)
-    mass = (user['mass'] or default_mass)
+    mass = (user_dict['mass'] or default_mass)
 
     t_doses = list(user_doses.keys())
+    t_doses = [int(t) for t in t_doses]
     now = datetime.datetime.now()
     g_alcohol = 0
 
     for i in range(len(t_doses)):
-        g_alcohol += user_doses[t_doses[i]]*7.9
+        g_alcohol += user_doses[str(t_doses[i])]*7.9
 
         if i < (len(t_doses)-1):
             g_alcohol -= 0.1*mass*(t_doses[i+1]-t_doses[i])/60/60
