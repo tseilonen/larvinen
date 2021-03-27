@@ -5,6 +5,7 @@ import datetime
 import numpy as np
 import pickle
 import sys
+import signal
 from dateutil import tz
 from google.cloud import firestore
 
@@ -95,7 +96,9 @@ async def on_message(message):
 
 def get_user_dict(uid):
     # returns None if there is no entry in db
-    return db.collection('users').document(str(uid)).get().to_dict()
+    user = db.collection('users').document(str(uid)).get().to_dict()
+    user['id'] = uid
+    return user
 
 
 def generate_drink_list():
@@ -253,6 +256,7 @@ def add_user(message, user):
         user['name'] = None
         user['sex'] = None
         user['mass'] = None
+        user['id'] = uid
         db.collection('users').document(str(uid)).set(user)
         update_user_base_info(message, user)
 
@@ -262,51 +266,50 @@ def add_user(message, user):
 
 
 def get_user_doses(uid):
-    doses_ref = db.collection('users').document(
-        str(uid)).collection('doses').stream()
-    doses = {}
+    doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>', datetime.datetime.now().timestamp())-96*60*60).stream()
+    doses={}
 
     for dose in doses_ref:
-        doses[dose.timestamp] = dose.to_dict()
+        doses[dose.id]=dose.to_dict()
 
     return doses
 
 
 def get_user_previous_dose(uid):
-    doses_ref = db.collection('users').document(
-        str(uid)).collection('doses').orderBy('timestamp').limit(1).stream()
+    doses_ref=db.collection('users').document(str(uid)).collection('doses').order_by(
+        'timestamp', direction = firestore.Query.DESCENDING).limit(1).stream()
 
-    doses = {}
+    doses={}
     for dose in doses_ref:
-        doses[dose.timestamp] = dose.to_dict()
+        doses[dose.timestamp]=dose.to_dict()
 
     return doses
 
 
 def add_dose(message, user):
-    attributes = parse_params(message.content)
-    drink = db.collection('basic_drinks').document(
+    attributes=parse_params(message.content)
+    drink=db.collection('basic_drinks').document(
         attributes[0]).get().to_dict()
 
     if drink != None:
-        new_dose = float(attributes[1] or drink['volume']) * \
+        new_dose=float(attributes[1] or drink['volume']) *
             float((attributes[2] or drink['alcohol']))/100
     elif ((attributes[0] == '%juoma') and (attributes[1] != None) and (attributes[2] != None)):
-        new_dose = float(attributes[1])*float(attributes[2])/100
+        new_dose=float(attributes[1])*float(attributes[2])/100
 
         if attributes[3] != None:
             db.collection('basic_drinks').document(
                 '%' + attributes[3].replace('%', '')).set({'alcohol': attributes[2], 'volume': attributes[1]})
 
     elif (attributes[0] == '%sama') and (len(user_doses[message.author.id]) > 0):
-        previous_dose = list(get_user_previous_dose(
+        previous_dose=list(get_user_previous_dose(
             message.author.id).values())[-1]
         if previous_dose == None or len(previous_dose) > 1:
             return 0
         else:
-            attributes[0] = previous_dose['drink']
-            attributes[1] = previous_dose['volume']
-            attributes[2] = previous_dose['alcohol']
+            attributes[0]=previous_dose['drink']
+            attributes[1]=previous_dose['volume']
+            attributes[2]=previous_dose['alcohol']
     else:
         return 0
 
@@ -317,11 +320,11 @@ def add_dose(message, user):
 
 
 def parse_params(msg):
-    msg_list = msg.split(' ')
-    attributes = [None]*5
+    msg_list=msg.split(' ')
+    attributes=[None]*5
 
     for i in range(len(msg_list)):
-        attributes[i] = msg_list[i]
+        attributes[i]=msg_list[i]
 
     return attributes
 
@@ -346,17 +349,17 @@ def per_mille(user):
     # Miehillä vettä painosta = 0,75*massa
     # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
 
-    user_doses = get_user_doses(user)
+    user_doses=get_user_doses(user['id'])
 
     if user_doses == None:
         return 0, 0
 
-    mass = (user['mass'] or default_mass)
+    mass=(user['mass'] or default_mass)
 
-    t_doses = list(user_doses.keys())
-    t_doses = [int(t) for t in t_doses]
-    now = datetime.datetime.now()
-    g_alcohol = 0
+    t_doses=list(user_doses.keys())
+    t_doses=[int(t) for t in t_doses]
+    now=datetime.datetime.now()
+    g_alcohol=0
 
     for i in range(len(t_doses)):
         g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
@@ -367,7 +370,7 @@ def per_mille(user):
             g_alcohol -= 0.1*mass * \
                 max((int(now.timestamp())-t_doses[i]), 1)/60/60
 
-        g_alcohol = max(g_alcohol, 0.0)
+        g_alcohol=max(g_alcohol, 0.0)
 
     return g_alcohol/water_multiplier[(user['sex'] or default_sex)]/mass, g_alcohol/0.1/mass
 
@@ -381,36 +384,36 @@ def per_mille_values(user, duration):
     # Miehillä vettä painosta = 0,75*massa
     # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
 
-    user_doses = get_user_doses(user)
+    user_doses=get_user_doses(user['id'])
     if user_doses == None:
         return 0
 
-    mass = (user['mass'] or default_mass)
+    mass=(user['mass'] or default_mass)
 
     print(user_doses)
     print(list(user_doses.keys()))
 
-    t_doses = list(user_doses.keys())
-    t_doses = [int(t) for t in t_doses]
-    now = datetime.datetime.now()
-    g_alcohol = 0
-    num_points = int(duration*points_per_hour)
-    default_points = int(default_plot_hours*points_per_hour)
-    interpolation_points = num_points+default_points
-    values = np.zeros(interpolation_points, dtype=float)
-    t_deltas = np.linspace(-interpolation_points /
+    t_doses=list(user_doses.keys())
+    t_doses=[int(t) for t in t_doses]
+    now=datetime.datetime.now()
+    g_alcohol=0
+    num_points=int(duration*points_per_hour)
+    default_points=int(default_plot_hours*points_per_hour)
+    interpolation_points=num_points+default_points
+    values=np.zeros(interpolation_points, dtype = float)
+    t_deltas=np.linspace(-interpolation_points /
                            points_per_hour*60*60, 0, interpolation_points)
-    t_next_dose = t_doses[0]
-    dose_index = 0
-    previous_time = int(
+    t_next_dose=t_doses[0]
+    dose_index=0
+    previous_time=int(
         (now+datetime.timedelta(seconds=t_deltas[0]-1)).timestamp())
 
     while t_doses[dose_index] < previous_time:
         dose_index += 1
-        t_next_dose = t_doses[dose_index]
+        t_next_dose=t_doses[dose_index]
 
     for i in range(interpolation_points):
-        time = int((now+datetime.timedelta(seconds=t_deltas[i])).timestamp())
+        time=int((now+datetime.timedelta(seconds=t_deltas[i])).timestamp())
 
         if time > t_next_dose:
             while (t_next_dose-time) <= (time-previous_time):
@@ -439,4 +442,15 @@ async def remove_sober():
             print('wololoo')
 
 
+def term_signal_handler(signalNumber, frame):
+    guilds = client.guilds
+    for guild in guilds:
+        for channel in guild.channels
+        if channel.name.lower() = 'lärvinen':
+            channel.send("Larvinen on sammutettu huoltoa varten!")
+    print('(SIGTERM) terminating the process')
+    sys.exit()
+
+
+signal.signal(signal.SIGTERM, term_signal_handler)
 client.run(os.getenv('DISCORDTOKEN'))
