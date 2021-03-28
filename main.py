@@ -54,12 +54,12 @@ async def on_message(message):
 
     # Get user dict, if there is no entry in db, then user = None
     user = get_user_dict(message.author.id)
+    params = parse_params(msg)
 
     if msg.startswith('%alkoholin vaikutukset'):
         await message.channel.send(alco_info())
 
     elif msg.startswith('%kuvaaja'):
-        params = parse_params(msg)
 
         create_plot(message, float(
             params[1] or default_plot_hours), params[2] != 'false')
@@ -72,7 +72,6 @@ async def on_message(message):
         await send_help(message)
 
     elif msg.startswith('%tiedot'):
-        params = parse_params(msg)
 
         if params[1] == 'aseta':
             user = set_personal_info(message, params, user)
@@ -83,18 +82,22 @@ async def on_message(message):
             await message.author.send('Et ole aiemmin käyttänyt palvelujani. Jos haluat asettaa tietosi, lähetä "%tiedot aseta <massa[kg]> <sukupuoli[m/f]>"')
 
     elif msg.startswith('%menu'):
-        drink_list = generate_drink_list()
+        drink_list, _ = generate_drink_list()
         await message.channel.send(f'{drink_list}')
 
-    elif sum([msg.startswith(drink) for drink in (list(basic_drinks.keys()) + list(special_drinks.keys()))]) == 1:
-        success = add_dose(message, user)
+    else:
+        drink_ref = db.collection('basic_drinks').document(
+            params[0]).get().to_dict()
 
-        if not success:
-            await message.author.send('Juoman lisääminen epäonnistui')
-        else:
-            if not isinstance(message.channel, discord.channel.DMChannel):
-                await message.delete()
-            await send_per_milles(message, user)
+        if drink_ref != None or sum([msg.startswith(drink) for drink in list(special_drinks.keys())]) == 1:
+            success = add_dose(message, user)
+
+            if not success:
+                await message.author.send('Juoman lisääminen epäonnistui')
+            else:
+                if not isinstance(message.channel, discord.channel.DMChannel):
+                    await message.delete()
+                await send_per_milles(message, user)
 
 
 def get_user_dict(uid):
@@ -106,11 +109,13 @@ def get_user_dict(uid):
 def generate_drink_list():
     drinks_ref = db.collection('basic_drinks').stream()
     drink_string = ''
+    drink_list = []
     for drink in drinks_ref:
         drink_dict = drink.to_dict()
         drink_string += f'{drink.id}\t\t{drink_dict["volume"]:.1f} cl \t\t{drink_dict["alcohol"]:.1f} %\n'
+        drink_list.append(drink.id)
 
-    return drink_string
+    return drink_string, drink_list
 
 
 def set_personal_info(message, params, user):
@@ -143,7 +148,7 @@ async def send_per_milles(message, user):
 
 
 async def send_help(message):
-    drink_list = generate_drink_list()
+    drink_list, _ = generate_drink_list()
     help = f'''%alkoholin vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
 %kuvaaja <h> <plot_all>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana humalassa olleiden humalatilan. <h> oletusarvo on 24h. <plot_all> on boolean, joka määrittää plotataanko kaikki käyttäjät, vai vain komennon suorittaja. Oletusarvoisesti true.\n
 %humala: \t Lärvinen lähettää sinulle humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
