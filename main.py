@@ -421,28 +421,22 @@ def per_mille_values_new(user, duration):
     zeros_to_insert = []
 
     for i in range(len(t_doses)):
-
-        if g_alcohol == 0.0:
-            g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
-            if i == 0:
-                absorption_time = first_dose_drinking_time_minutes*60
-            else:
-                absorption_time = min(
-                    first_dose_drinking_time_minutes*60, t_doses[i]-t_doses[i-1])
-
-            if absorption_time == first_dose_drinking_time_minutes*60:
-                zeros_to_insert.append([i, t_doses[i]-absorption_time])
-
-            g_alcohol -= 0.1*mass*(absorption_time)/60/60
-        elif i < (len(t_doses)-1):
-            g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
-            g_alcohol -= 0.1*mass*(t_doses[i]-t_doses[i-1])/60/60
+        if i == 0:
+            absorption_time = first_dose_drinking_time_minutes*60
         else:
-            g_alcohol -= 0.1*mass * \
-                max((t_doses[i]-t_doses[i-1]), 1)/60/60
+            absorption_time = min(
+                first_dose_drinking_time_minutes*60, t_doses[i]-t_doses[i-1])
 
-        if g_alcohol < 0:
+            g_alcohol -= 0.1*mass*(max(t_doses[i]-t_doses[i-1], 1))/60/60
+
+        if g_alcohol <= 0.0:
+            zeros_to_insert.append([i, t_doses[i]-absorption_time])
             zeros_to_insert.append([i, t_doses[i] + g_alcohol/0.1/mass*60*60])
+
+            g_alcohol = 0.0
+
+        if i < (len(t_doses)-1):
+            g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
 
         g_alcohol = max(g_alcohol, 0.0)
         values[i] = g_alcohol
@@ -452,11 +446,10 @@ def per_mille_values_new(user, duration):
         values = np.insert(values, zeros_to_insert[i][0]+i, 0.0)
 
     values = np.insert(values, 0, 0.0)
-    t_doses.insert(0, t_doses[0]-60*first_dose_drinking_time_minutes)
-
-    values = np.insert(values, 0, 0.0)
     t_doses.insert(0, t_interp[0]-1)
 
+    print(values)
+    print(t_doses)
     f = interpolate.interp1d(t_doses, values, kind='linear')
     interp_values = f(t_interp)
 
