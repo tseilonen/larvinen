@@ -453,8 +453,6 @@ def per_mille_values_new(user, duration):
     values = np.insert(values, 0, 0.0)
     t_doses.insert(0, t_interp[0]-1)
 
-    print(values)
-    print(t_doses)
     f = interpolate.interp1d(t_doses, values, kind='linear')
     interp_values = f(t_interp)
 
