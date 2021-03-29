@@ -49,6 +49,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    capital_params = parse_params(message.content)
     message.content = message.content.lower()
     msg = message.content
 
@@ -56,20 +57,15 @@ async def on_message(message):
     user = get_user_dict(message.author.id)
     params = parse_params(msg)
 
-    if msg.startswith('%alkoholin vaikutukset'):
+    if msg.startswith('%alkoholin_vaikutukset'):
         await message.channel.send(alco_info())
-
-    elif msg.startswith('%kuvaaja'):
-
-        create_plot(message, float(
-            params[1] or default_plot_hours), params[2] != 'false')
-        await message.channel.send(file=discord.File(open(plot_path, 'rb'), 'larvit.png'))
-
-    elif msg.startswith('%humala'):
-        await send_per_milles(message, user)
 
     elif msg.startswith('%help'):
         await send_help(message)
+
+    elif msg.startswith('%menu'):
+        drink_list, _ = generate_drink_list()
+        await message.channel.send(f'{drink_list}')
 
     elif msg.startswith('%tiedot'):
 
@@ -79,18 +75,31 @@ async def on_message(message):
         if user != None:
             await message.author.send(f'Nimi: {user["name"]}\nMassa: {user["mass"]:.0f}\nSukupuoli: {user["sex"]}')
         else:
-            await message.author.send('Et ole aiemmin käyttänyt palvelujani. Jos haluat asettaa tietosi, lähetä "%tiedot aseta <massa[kg]> <sukupuoli[m/f]>"')
+            await message.author.send('Et ole aiemmin käyttänyt palvelujani. Jos haluat asettaa tietosi, lähetä "%tiedot aseta <massa> [m/f]", esim. 80kg mies: "%tiedot aseta 80 m"')
 
-    elif msg.startswith('%menu'):
-        drink_list, _ = generate_drink_list()
-        await message.channel.send(f'{drink_list}')
+        if not isinstance(message.channel, discord.channel.DMChannel):
+            await message.delete()
+
+    elif msg.startswith('%kuvaaja'):
+        if user != None or (user == None and params[2] != 'false'):
+            create_plot(message, float(
+                params[1] or default_plot_hours), capital_params[2])
+            await message.channel.send(file=discord.File(open(plot_path, 'rb'), 'larvit.png'))
+        else:
+            await message.channel.send('Et ole käyttänyt palvelujani aiemmin. Et voi plotata omaa humalatilaasi.')
+
+    elif msg.startswith('%humala'):
+        if user != None:
+            await send_per_milles(message, user)
+        else:
+            await message.channel.send('Et ole aiemmin käyttänyt palvelujani. Et voi tiedustella humalatilaasi.')
 
     else:
         drink_ref = db.collection('basic_drinks').document(
             params[0]).get().to_dict()
 
         if drink_ref != None or sum([msg.startswith(drink) for drink in list(special_drinks.keys())]) == 1:
-            success = add_dose(message, user)
+            user, success = add_dose(message, user)
 
             if not success:
                 await message.author.send('Juoman lisääminen epäonnistui')
@@ -148,29 +157,51 @@ async def send_per_milles(message, user):
 
 
 async def send_help(message):
-    drink_list, _ = generate_drink_list()
-    help = f'''%alkoholin vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
-%kuvaaja <h> <plot_all>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana humalassa olleiden humalatilan. <h> oletusarvo on 24h. <plot_all> on boolean, joka määrittää plotataanko kaikki käyttäjät, vai vain komennon suorittaja. Oletusarvoisesti true.\n
-%humala: \t Lärvinen lähettää sinulle humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
+    help = '''Tässä tuntemani komennot. Kaikki komennot toimivat myös yksityisviestillä minulle. Käyttämällä palveluitani hyväksyt tietojesi tallentamisen Googlen palvelimille Yhdysvaltoihin.\n
+%alkoholin_vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
+%kuvaaja <h> <plot_all>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana humalassa olleiden humalatilan. Jotta henkilö voi näkyä palvelimella kuvaajassa, on hänen tullut ilmoittaa vähintään yksi annos tältä palvelimelta. <h> oletusarvo on 24h. <plot_all> on joko true, false tai lista henkilöitä. Oletusarvo on true. \n\tTrue: kaikki <h> aika humalassa olleet henkilöt plotataan kuvaajaan. \n\tFalse: Plotataan pelkästään komennon suorittaja. \n\tLista nimiä: Plotataan listassa olevat henkilöt. Esim [Tino,Aleksi,Henri]. Henkilöt tulee olla erotettu pilkuilla ilman välilyöntejä.\n
+%humala: \t Lärvinen tulostaa humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
 %olut/%aolut/%viini/%viina/%siideri <cl> <vol>: \t Lisää  <cl> senttilitraa <%-vol> vahvuista juomaa nautittujen annosten listaasi. <cl> ja <vol> ovat vapaaehtoisia. Käytä desimaalierottimena pistettä. Esim: "%olut 40 7.2" tai "%viini"\n
-Oletusarvot
-Juoma\tTilavuus\tAlkoholipitoisuus(%-vol)
-{drink_list}
-%juoma <cl> <vol>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Molemmat parametrit ovat pakollisia\n
+%juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n
 %sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n
-%menu: \t Tulostaa mahdollisten juomien listan\n
-%tiedot <aseta massa sukupuoli>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä.\n
+%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
+%tiedot <aseta massa sukupuoli>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle.\n
 %help: \t Tulostaa tämän tekstin'''
 
     await message.channel.send(help)
 
 
-def get_guild_users(gid):
-    users_ref = db.collection('guilds').document(str(gid)).get()
-    return users_ref.to_dict()['members']
+def get_all_guild_users(gid):
+    users_ref = db.collection('users').where(
+        f'guilds.`{gid}`.member', '==', True).stream()
+
+    users = []
+    for user in users_ref:
+        users.append(user.id)
+
+    return users
 
 
-def create_plot(message, duration, plot_all):
+def get_guild_users(gid, user_list):
+    nick_ref = db.collection('users').where(
+        f'guilds.`{gid}`.nick', 'in', user_list).stream()
+
+    users = []
+    for user in nick_ref:
+        users.append(user.id)
+
+    # Only one in, not-in, array_contains_any per query
+    name_ref = db.collection('users').where(f'guilds.`{gid}`.member', '==', True).where(
+        f'guilds.`{gid}`.nick', '==', None).where('name', 'in', user_list).stream()
+
+    for user in name_ref:
+        if user.id not in users:
+            users.append(user.id)
+
+    return users
+
+
+def create_plot(message, duration, plot_users):
     vals = {}
     points = int(duration*points_per_hour)
     t_deltas = np.linspace(-duration*60*60, 0, points+1)
@@ -184,8 +215,17 @@ def create_plot(message, duration, plot_all):
     plt.ylabel('Humalan voimakkuus [‰]')
     plt.xlabel('Aika')
 
-    if plot_all and isinstance(message.author, discord.Member):
-        guild_users = get_guild_users(message.guild.id)
+    if plot_users != 'false' and isinstance(message.author, discord.Member):
+        plot_all = True
+        if plot_users != None and plot_users.find('[') != -1 and plot_users.find(']') != -1:
+            guild_users = get_guild_users(message.guild.id, plot_users.replace(
+                '[', '').replace(']', '').split(','))
+        else:
+            guild_users = get_all_guild_users(message.guild.id)
+    else:
+        plot_all = False
+
+    if plot_all:
         for uid in guild_users:
             uid = int(uid)
             user = get_user_dict(uid)
@@ -214,15 +254,24 @@ def create_plot(message, duration, plot_all):
 
 def update_user_base_info(message, user_dict, params=[None, None]):
     uid = message.author.id
+    user_modified = False
 
-    if (user_dict['name'] != message.author.name) or ((params[0] != None) and (params[0] != user_dict['mass'])) or ((params[1] != None) and (params[0] != user_dict['sex'])):
-        user_ref = db.collection('users').document(str(uid))
-        user_ref.update({'name': message.author.name, 'mass': float(
-            params[0] or user_dict['mass']), 'sex': (params[1] or user_dict['sex'])})
-
+    if (user_dict['name'] != message.author.name):
         user_dict['name'] = message.author.name
-        user_dict['mass'] = float(params[0] or user_dict['mass'])
-        user_dict['sex'] = (params[1] or user_dict['sex'])
+        user_modified = True
+
+    if ((params[0] != None) and (params[0] != user_dict['mass'])):
+        user_dict['mass'] = float(params[0])
+        user_modified = True
+
+    if ((params[1] != None) and (params[0] != user_dict['sex'])):
+        user_dict['sex'] = params[1]
+        user_modified = True
+
+    if user_modified:
+        user_ref = db.collection('users').document(str(uid))
+        user_ref.update(
+            {'name': user_dict['name'], 'mass': user_dict['mass'], 'sex': user_dict['sex']})
 
     return user_dict
 
@@ -234,27 +283,22 @@ def update_user_guild_info(message, user):
     if (isinstance(message.author, discord.Member)):
         gid = message.author.guild.id
         sgid = str(gid)
-        guild_users = get_guild_users(gid)
 
         user_modified = False
         if sgid not in user['guilds']:
             user['guilds'][sgid] = {}
             user['guilds'][sgid]['nick'] = message.author.nick
+            user['guilds'][sgid]['member'] = True
+            user['guilds'][sgid]['guildname'] = message.guild.name
             user_modified = True
 
-        if message.author.nick != user['guilds'][sgid]['nick']:
+        if (message.author.nick != user['guilds'][sgid]['nick']) or (message.guild.name != user['guilds'][sgid]['guildname']):
             user['guilds'][sgid]['nick'] = message.author.nick
             user_modified = True
 
         if user_modified:
             db.collection('users').document(
                 str(uid)).update({'guilds': user['guilds']})
-
-        if (guild_users == None) or (str(uid) not in guild_users):
-            members = (guild_users or [])
-            members.append(str(uid))
-            db.collection('guilds').document(sgid).set(
-                {'members': members})
 
     return user
 
@@ -322,7 +366,7 @@ def add_dose(message, user):
             previous_dose = list(get_user_previous_dose(
                 message.author.id).values())[-1]
             if previous_dose == None:
-                return 0
+                return user, 0
             else:
                 attributes[0] = previous_dose['drink']
                 attributes[1] = previous_dose['volume']
@@ -334,7 +378,7 @@ def add_dose(message, user):
     # Convert to int first to get rid of decimals
     db.collection('users').document(str(message.author.id)).collection(
         'doses').document(str(int(message.created_at.timestamp()))).set({'drink': attributes[0], 'volume': (attributes[1] or drink['volume']), 'alcohol': (attributes[2] or drink['alcohol']), 'pure_alcohol': new_dose, 'timestamp': int(message.created_at.timestamp())})
-    return 1
+    return user, 1
 
 
 def parse_params(msg):
@@ -520,11 +564,6 @@ def per_mille_values(user, duration):
 
     return values[default_points:]/water_multiplier[(user['sex'] or default_sex)]/mass
 
-
-async def remove_sober():
-    for key in drunk:
-        if per_mille(drunk[key]) == 0:
-            print('wololoo')
 
 client.run(os.getenv('DISCORDTOKEN'))
 
