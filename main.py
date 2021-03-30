@@ -450,10 +450,13 @@ def per_mille_values_new(user, duration, now):
         t_doses.insert(zeros_to_insert[i][0]+i, zeros_to_insert[i][1])
         values = np.insert(values, zeros_to_insert[i][0]+i, 0.0)
 
+    t_doses.insert(0, t_interp[0]-1)
+    values = np.insert(values, 0, 0.0)
+
     f = interpolate.interp1d(t_doses, values, kind='linear')
     interp_values = f(t_interp)
 
-    return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, t_interp, values, t_doses
+    return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, t_interp, values[1:], t_doses[1:]
 
 
 def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration=24):
