@@ -75,12 +75,14 @@ async def on_message(message):
 
         if params[1] == 'aseta':
             user = set_personal_info(message, params, user)
-        if params[1] == 'poista' and user != None
-           if params[2] == None:
+        elif params[1] == 'poista' and user != None:
+            if params[2] == None:
                 await message.author.send(f'Mikäli haluat poistaa kaikki tietosi tietokannasta, vastaa tähän viestiin "%tiedot poista {user["id"]}"')
             elif params[2] == str(message.author.id):
-                db.collection('users').document(
-                    user['id']).collection('doses').delete()
+                doses_ref = db.collection('users').document(
+                    user['id']).collection('doses')
+                delete_collection(doses_ref, 16)
+
                 db.collection('users').document(user['id']).delete()
                 await asyncio.sleep(0.5)
                 user = get_user_dict(message.author.id)
@@ -108,11 +110,12 @@ async def on_message(message):
             await send_per_milles(message, user)
         else:
             await message.channel.send('Et ole aiemmin käyttänyt palvelujani. Et voi tiedustella humalatilaasi.')
-    
-    elif mesg.startswith('%peruuta'):
+
+    elif msg.startswith('%peruuta'):
         dose = get_user_previous_dose(message.author.id)
         if dose != None and len(dose) > 0:
-            db.collection('users').document(user['id']).collection('doses').document(list(dose.keys())[0]).delete()
+            db.collection('users').document(user['id']).collection(
+                'doses').document(list(dose.keys())[0]).delete()
             message.channel.send('Annos poistettu')
         else:
             message.channel.send('Ei löydetty annosta mitä poistaa')
@@ -137,6 +140,19 @@ def get_user_dict(uid):
     # returns None if there is no entry in db
     user = db.collection('users').document(str(uid)).get().to_dict()
     return user
+
+
+def delete_collection(coll_ref, batch_size):
+    docs = coll_ref.limit(batch_size).stream()
+    deleted = 0
+
+    for doc in docs:
+        print(f'Deleting doc {doc.id} => {doc.to_dict()}')
+        doc.reference.delete()
+        deleted = deleted + 1
+
+    if deleted >= batch_size:
+        return delete_collection(coll_ref, batch_size)
 
 
 def generate_drink_list():
@@ -189,7 +205,8 @@ async def send_help(message):
 %juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n
 %sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n
 %menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
-%tiedot <aseta massa sukupuoli>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle.\n
+%peruuta: \t Poistaa edellisen annoksen nautittujen annosten listasta\n
+%tiedot <aseta massa sukupuoli>/<poista>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle. Komennolla "%tiedot poista" saat poistettua kaikki tietosi Lärvisen tietokannasta.\n
 %help: \t Tulostaa tämän tekstin'''
 
     await message.channel.send(help)
