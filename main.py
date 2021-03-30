@@ -6,12 +6,15 @@ import numpy as np
 import pickle
 import sys
 import signal
+import asyncio
 from dateutil import tz
 from google.cloud import firestore
 from scipy import interpolate
 
 client = discord.Client()
 db = firestore.Client()
+
+development = False
 
 default_plot_hours = 24.0
 pad_hours = 96.0
@@ -41,6 +44,7 @@ water_multiplier = {'m': 0.75, 'f': 0.66}
 @client.event
 async def on_ready():
     print(f'Logattu sisään {client.user}')
+    await message_channels('Olen kuulolla')
 
 
 @client.event
@@ -106,7 +110,8 @@ async def on_message(message):
             else:
                 if not isinstance(message.channel, discord.channel.DMChannel):
                     await message.delete()
-                await send_per_milles(message, user)
+            await asyncio.sleep(0.5)
+            await send_per_milles(message, user)
 
 
 def get_user_dict(uid):
@@ -203,11 +208,7 @@ def get_guild_users(gid, user_list):
 
 def create_plot(message, duration, plot_users):
     vals = {}
-    points = int(duration*points_per_hour)
-    t_deltas = np.linspace(-duration*60*60, 0, points+1)
-    now = datetime.datetime.now(tz.gettz('Europe/Helsinki'))
-    times = [(now+datetime.timedelta(seconds=t)).strftime('%d.%m.%Y %H:%M:%S')
-             for t in t_deltas]
+    plotted = False
 
     plt.clf()
     plt.figure(figsize=(12, 8))
@@ -225,31 +226,50 @@ def create_plot(message, duration, plot_users):
     else:
         plot_all = False
 
+    # now in utc time
+    now = datetime.datetime.now()
     if plot_all:
         for uid in guild_users:
             uid = int(uid)
             user = get_user_dict(uid)
-            vals[uid] = per_mille_values_new(user, duration)
+            vals[uid], t_vals, doses, t_doses = per_mille_values_new(user, duration, now)
             if sum(vals[uid]) > 0:
-                plt.plot(vals[uid], label=user_name_or_nick(message, user))
+                ind_doses = np.searchsorted(t_vals, t_doses[:-1], side='right')-1
+                ind_doses, counts = np.unique(ind_doses[ind_doses >= 0], return_counts=True)
+                plotted = True
+                x_values = t_vals
+                plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses, label=user_name_or_nick(message, user))
     else:
         uid = message.author.id
         user = get_user_dict(uid)
-        vals[uid] = per_mille_values_new(user, duration)
-        plt.plot(vals[uid], label=user_name_or_nick(message, user))
+        vals[uid], t_vals, doses, t_doses = per_mille_values_new(user, duration, now)
+        if sum(vals[uid]) > 0:
+            plotted = True
+            x_values = t_vals
+            ind_doses = np.searchsorted(t_vals, t_doses[:-1], side='right')-1
+            ind_doses, counts = np.unique(ind_doses[ind_doses >= 0], return_counts=True)
+            plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses, label=user_name_or_nick(message, user))
 
-    plt.legend()
-    plt.grid()
+    if plotted:
+        plt.legend()
+        plt.grid()
 
-    locs = [0]*6
-    labels = ['']*6
-    for i in range(6):
-        labels[i] = times[int(i*points/5)]
-        locs[i] = int(i*points/5)
+        # finnish time
+        times = [(datetime.datetime.fromtimestamp(t, tz=tz.gettz('Europe/Helsinki'))).strftime('%d.%m.%Y %H:%M:%S') for t in x_values]
+        locs = [0]*6
+        labels = ['']*6
+        points = len(x_values)-1
 
-    plt.xticks(locs, labels, rotation=0)
-    plt.tight_layout()
-    plt.savefig(plot_path)
+        for i in range(6):
+            labels[i] = times[int(i*points/5)]
+            locs[i] = x_values[int(i*points/5)]
+
+        plt.xticks(locs, labels, rotation=0)
+        plt.tight_layout()
+        plt.savefig(plot_path)
+    else:
+        plt.clf()
+        plt.savefig(plot_path)
 
 
 def update_user_base_info(message, user_dict, params=[None, None]):
@@ -321,9 +341,9 @@ def add_user(message, user):
     return user
 
 
-def get_user_doses(uid):
+def get_user_doses(uid, duration):
     doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
-        'timestamp', '>', datetime.datetime.now().timestamp()-96*60*60).stream()
+        'timestamp', '>', datetime.datetime.now().timestamp()-(duration+pad_hours)*60*60).stream()
     doses = {}
 
     for dose in doses_ref:
@@ -404,67 +424,59 @@ Tiedot kuvaavat alkoholin huippupitoisuuksien summittaisia vaikutuksia alkoholia
 
 
 def per_mille(user):
-    # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
-    # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
-    # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
-    # Naisilla vettä painosta = 0,66*massa
-    # Miehillä vettä painosta = 0,75*massa
-    # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
-
-    user_doses = get_user_doses(user['id'])
-
-    if user_doses == None:
-        return 0, 0
-
     mass = (user['mass'] or default_mass)
 
-    t_doses = list(user_doses.keys())
-    t_doses = [int(t) for t in t_doses]
-    now = datetime.datetime.now()
-    g_alcohol = 0
+    g_alcohol, _, _ = get_user_alcohol_grams(user)
+    if np.any(g_alcohol == None):
+        g_alcohol = [0]
 
-    for i in range(len(t_doses)):
-        g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
-
-        if i < (len(t_doses)-1):
-            g_alcohol -= 0.1*mass*(t_doses[i+1]-t_doses[i])/60/60
-        else:
-            g_alcohol -= 0.1*mass * \
-                max((int(now.timestamp())-t_doses[i]), 1)/60/60
-
-        g_alcohol = max(g_alcohol, 0.0)
-
-    return g_alcohol/water_multiplier[(user['sex'] or default_sex)]/mass, g_alcohol/0.1/mass
+    return g_alcohol[-1]/water_multiplier[(user['sex'] or default_sex)]/mass, g_alcohol[-1]/0.1/mass
 
 
-def per_mille_values_new(user, duration):
-    # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
-    # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
-    # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
-    # Naisilla vettä painosta = 0,66*massa
-    # Miehillä vettä painosta = 0,75*massa
-    # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
-
-    user_doses = get_user_doses(user['id'])
-
-    if user_doses == None:
-        return 0, 0
-
+def per_mille_values_new(user, duration, now):
     mass = (user['mass'] or default_mass)
 
-    now = datetime.datetime.now()
+    values, t_doses, zeros_to_insert = get_user_alcohol_grams(user, now, duration)
+    if np.any(values == None):
+        return [0], [0], [0], [0]
+
     num_points = int(duration*points_per_hour)
-    default_points = int(pad_hours*points_per_hour)
-    interpolation_points = num_points+default_points
 
     # Interpolate to 1 second before now
-    t_interp = np.linspace(-interpolation_points /
-                           points_per_hour*60*60, -1, interpolation_points)+now.timestamp()
+    t_interp = np.linspace(-num_points /
+                           points_per_hour*60*60, -1, num_points)+now.timestamp()
+
+    for i in range(len(zeros_to_insert)):
+        t_doses.insert(zeros_to_insert[i][0]+i, zeros_to_insert[i][1])
+        values = np.insert(values, zeros_to_insert[i][0]+i, 0.0)
+
+    f = interpolate.interp1d(t_doses, values, kind='linear')
+    interp_values = f(t_interp)
+
+    return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, t_interp, values, t_doses
+
+
+def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration=24):
+    # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
+    # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
+    # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
+    # Naisilla vettä painosta = 0,66*massa
+    # Miehillä vettä painosta = 0,75*massa
+    # Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
+
+    user_doses = get_user_doses(user['id'], duration)
+
+    if user_doses == None or len(user_doses) == 0:
+        return [None]*3
+
+    mass = (user['mass'] or default_mass)
 
     t_doses = list(user_doses.keys())
+    #Make last datapoint to be at current timestamp
     t_doses.append(int(now.timestamp()))
-    user_doses[str(int(now.timestamp()))] = {'pure_alcohol': 0}
+    user_doses[str(int(now.timestamp()))] = {'pure_alcohol': 0.0}
     t_doses = [int(t) for t in t_doses]
+
     g_alcohol = 0.0
     values = np.zeros(len(t_doses), dtype=float)
     zeros_to_insert = []
@@ -478,104 +490,55 @@ def per_mille_values_new(user, duration):
 
             g_alcohol -= 0.1*mass*(max(t_doses[i]-t_doses[i-1], 1))/60/60
 
-        if g_alcohol <= 0.0:
-            zeros_to_insert.append([i, t_doses[i]-absorption_time])
-            zeros_to_insert.append([i, t_doses[i] + g_alcohol/0.1/mass*60*60])
+        if g_alcohol < 0:
+            if int(t_doses[i]-absorption_time) < int(t_doses[i] + g_alcohol/0.1/mass*60*60):
+                zeros_to_insert.append([i, int(t_doses[i]-absorption_time)])
+                zeros_to_insert.append([i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
+            else:
+                zeros_to_insert.append([i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
+
+                if i < (len(t_doses)-1):
+                    zeros_to_insert.append([i, int(t_doses[i]-absorption_time)])
 
             g_alcohol = 0.0
 
-        if i < (len(t_doses)-1):
-            g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
+        g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
 
         g_alcohol = max(g_alcohol, 0.0)
         values[i] = g_alcohol
 
-    for i in range(len(zeros_to_insert)):
-        t_doses.insert(zeros_to_insert[i][0]+i, zeros_to_insert[i][1])
-        values = np.insert(values, zeros_to_insert[i][0]+i, 0.0)
-
-    values = np.insert(values, 0, 0.0)
-    t_doses.insert(0, t_interp[0]-1)
-
-    f = interpolate.interp1d(t_doses, values, kind='linear')
-    interp_values = f(t_interp)
-
-    return interp_values[default_points:]/water_multiplier[(user['sex'] or default_sex)]/mass
+    return values, t_doses, zeros_to_insert
 
 
-def per_mille_values(user, duration):
-
-    # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
-    # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
-    # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
-    # Naisilla vettä painosta = 0,66*massa
-    # Miehillä vettä painosta = 0,75*massa
-    # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
-
-    user_doses = get_user_doses(user['id'])
-    if user_doses == None:
-        return 0
-
-    mass = (user['mass'] or default_mass)
-
-    t_doses = list(user_doses.keys())
-    t_doses = [int(t) for t in t_doses]
-    now = datetime.datetime.now()
-    g_alcohol = 0
-    num_points = int(duration*points_per_hour)
-    default_points = int(pad_hours*points_per_hour)
-    interpolation_points = num_points+default_points
-    values = np.zeros(interpolation_points, dtype=float)
-    t_deltas = np.linspace(-interpolation_points /
-                           points_per_hour*60*60, 0, interpolation_points)
-    t_next_dose = t_doses[0]
-    dose_index = 0
-    previous_time = int(
-        (now+datetime.timedelta(seconds=t_deltas[0]-1)).timestamp())
-
-    while t_doses[dose_index] < previous_time:
-        dose_index += 1
-        t_next_dose = t_doses[dose_index]
-
-    for i in range(interpolation_points):
-        time = int((now+datetime.timedelta(seconds=t_deltas[i])).timestamp())
-
-        if time > t_next_dose:
-            # Doses need to be added up if multiple doses are consumed within one time bin
-            g_next_dose = 0
-            while (t_next_dose-time) <= (time-previous_time):
-                g_alcohol += user_doses[str(t_doses[dose_index])
-                                        ]['pure_alcohol']*7.9
-
-                dose_index += 1
-
-                if dose_index > (len(t_doses)-1):
-                    t_next_dose = int(
-                        (datetime.datetime.now()+datetime.timedelta(days=10)).timestamp())
-                else:
-                    t_next_dose = t_doses[dose_index]
-                    points_to_next = (t_next_dose-time)/60/3
-
-        g_alcohol -= 0.1*mass*(time-previous_time)/60/60
-
-        g_alcohol = max(g_alcohol, 0.0)
-        values[i] = g_alcohol
-        previous_time = time
-
-    return values[default_points:]/water_multiplier[(user['sex'] or default_sex)]/mass
-
-
-client.run(os.getenv('DISCORDTOKEN'))
-
-
-def term_signal_handler(signalNumber, frame):
+async def message_channels(message):
     guilds = client.guilds
     for guild in guilds:
         for channel in guild.channels:
-            if channel.name.lower() == 'lärvinen':
-                channel.send("Larvinen on sammutettu huoltoa varten!")
-    print('(SIGTERM) terminating the process')
-    sys.exit()
+            if not development and (channel.name.lower() == 'lärvinen'):
+                await channel.send(message)
 
 
-signal.signal(signal.SIGTERM, term_signal_handler)
+async def sigterm(loop):
+    await message_channels('Minut on sammutettu ylläpitoa varten')
+    loop.stop()
+
+
+def start(vals):
+    global development
+    development = True if vals[-1] == 'dev' else False
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(sigterm(loop)))
+    loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(sigterm(loop)))
+
+    try:
+        loop.run_until_complete(client.start(os.getenv('DISCORDTOKEN')))
+    except:
+        loop.run_until_complete(client.logout())
+        # cancel all tasks lingering
+    finally:
+        loop.close()
+
+
+if __name__ == "__main__":
+    start(sys.argv)
