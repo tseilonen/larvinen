@@ -75,6 +75,17 @@ async def on_message(message):
 
         if params[1] == 'aseta':
             user = set_personal_info(message, params, user)
+        if params[1] == 'poista' and user != None
+           if params[2] == None:
+                await message.author.send(f'Mikäli haluat poistaa kaikki tietosi tietokannasta, vastaa tähän viestiin "%tiedot poista {user["id"]}"')
+            elif params[2] == str(message.author.id):
+                db.collection('users').document(
+                    user['id']).collection('doses').delete()
+                db.collection('users').document(user['id']).delete()
+                await asyncio.sleep(0.5)
+                user = get_user_dict(message.author.id)
+            else:
+                await message.author.send('Komento on väärin kirjoitettu, tietoja ei poistettu')
 
         if user != None:
             await message.author.send(f'Nimi: {user["name"]}\nMassa: {user["mass"]:.0f}\nSukupuoli: {user["sex"]}')
@@ -97,6 +108,14 @@ async def on_message(message):
             await send_per_milles(message, user)
         else:
             await message.channel.send('Et ole aiemmin käyttänyt palvelujani. Et voi tiedustella humalatilaasi.')
+    
+    elif mesg.startswith('%peruuta'):
+        dose = get_user_previous_dose(message.author.id)
+        if dose != None and len(dose) > 0:
+            db.collection('users').document(user['id']).collection('doses').document(list(dose.keys())[0]).delete()
+            message.channel.send('Annos poistettu')
+        else:
+            message.channel.send('Ei löydetty annosta mitä poistaa')
 
     else:
         drink_ref = db.collection('basic_drinks').document(
@@ -232,30 +251,38 @@ def create_plot(message, duration, plot_users):
         for uid in guild_users:
             uid = int(uid)
             user = get_user_dict(uid)
-            vals[uid], t_vals, doses, t_doses = per_mille_values_new(user, duration, now)
+            vals[uid], t_vals, doses, t_doses = per_mille_values_new(
+                user, duration, now)
             if sum(vals[uid]) > 0:
-                ind_doses = np.searchsorted(t_vals, t_doses[:-1], side='right')-1
-                ind_doses, counts = np.unique(ind_doses[ind_doses >= 0], return_counts=True)
+                ind_doses = np.searchsorted(
+                    t_vals, t_doses[:-1], side='right')-1
+                ind_doses, counts = np.unique(
+                    ind_doses[ind_doses >= 0], return_counts=True)
                 plotted = True
                 x_values = t_vals
-                plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses, label=user_name_or_nick(message, user))
+                plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
+                         label=user_name_or_nick(message, user))
     else:
         uid = message.author.id
         user = get_user_dict(uid)
-        vals[uid], t_vals, doses, t_doses = per_mille_values_new(user, duration, now)
+        vals[uid], t_vals, doses, t_doses = per_mille_values_new(
+            user, duration, now)
         if sum(vals[uid]) > 0:
             plotted = True
             x_values = t_vals
             ind_doses = np.searchsorted(t_vals, t_doses[:-1], side='right')-1
-            ind_doses, counts = np.unique(ind_doses[ind_doses >= 0], return_counts=True)
-            plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses, label=user_name_or_nick(message, user))
+            ind_doses, counts = np.unique(
+                ind_doses[ind_doses >= 0], return_counts=True)
+            plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
+                     label=user_name_or_nick(message, user))
 
     if plotted:
         plt.legend()
         plt.grid()
 
         # finnish time
-        times = [(datetime.datetime.fromtimestamp(t, tz=tz.gettz('Europe/Helsinki'))).strftime('%d.%m.%Y %H:%M:%S') for t in x_values]
+        times = [(datetime.datetime.fromtimestamp(t, tz=tz.gettz(
+            'Europe/Helsinki'))).strftime('%d.%m.%Y %H:%M:%S') for t in x_values]
         locs = [0]*6
         labels = ['']*6
         points = len(x_values)-1
@@ -436,7 +463,8 @@ def per_mille(user):
 def per_mille_values_new(user, duration, now):
     mass = (user['mass'] or default_mass)
 
-    values, t_doses, zeros_to_insert = get_user_alcohol_grams(user, now, duration)
+    values, t_doses, zeros_to_insert = get_user_alcohol_grams(
+        user, now, duration)
     if np.any(values == None):
         return [0], [0], [0], [0]
 
@@ -475,7 +503,7 @@ def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration=24):
     mass = (user['mass'] or default_mass)
 
     t_doses = list(user_doses.keys())
-    #Make last datapoint to be at current timestamp
+    # Make last datapoint to be at current timestamp
     t_doses.append(int(now.timestamp()))
     user_doses[str(int(now.timestamp()))] = {'pure_alcohol': 0.0}
     t_doses = [int(t) for t in t_doses]
@@ -496,12 +524,15 @@ def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration=24):
         if g_alcohol < 0:
             if int(t_doses[i]-absorption_time) < int(t_doses[i] + g_alcohol/0.1/mass*60*60):
                 zeros_to_insert.append([i, int(t_doses[i]-absorption_time)])
-                zeros_to_insert.append([i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
+                zeros_to_insert.append(
+                    [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
             else:
-                zeros_to_insert.append([i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
+                zeros_to_insert.append(
+                    [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
 
                 if i < (len(t_doses)-1):
-                    zeros_to_insert.append([i, int(t_doses[i]-absorption_time)])
+                    zeros_to_insert.append(
+                        [i, int(t_doses[i]-absorption_time)])
 
             g_alcohol = 0.0
 
@@ -531,8 +562,10 @@ def start(vals):
     development = True if vals[-1] == 'dev' else False
 
     loop = asyncio.get_event_loop()
-    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(sigterm(loop)))
-    loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(sigterm(loop)))
+    loop.add_signal_handler(
+        signal.SIGTERM, lambda: asyncio.create_task(sigterm(loop)))
+    loop.add_signal_handler(
+        signal.SIGINT, lambda: asyncio.create_task(sigterm(loop)))
 
     try:
         loop.run_until_complete(client.start(os.getenv('DISCORDTOKEN')))
