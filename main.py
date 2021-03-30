@@ -116,9 +116,30 @@ async def on_message(message):
         if dose != None and len(dose) > 0:
             db.collection('users').document(user['id']).collection(
                 'doses').document(list(dose.keys())[0]).delete()
-            message.channel.send('Annos poistettu')
+            await message.channel.send('Annos poistettu')
         else:
-            message.channel.send('Ei löydetty annosta mitä poistaa')
+            await message.channel.send('Ei löydetty annosta mitä poistaa')
+
+    elif msg.startswith('%annokset'):
+        now = datetime.datetime.now()
+        date = datetime.datetime.fromisoformat(
+            params[1]) if params[1] != None else datetime.datetime.fromtimestamp(now.timestamp()-7*24*60*60)
+        since = (now.timestamp()-date.timestamp())/60/60-pad_hours
+        doses = get_user_doses(message.author.id, since)
+        len_str = len(str(doses))
+        no_messages = int(len_str/2000.0+1)
+
+        keys_per_message = int(len(doses)/no_messages)
+        keys = list(doses.keys())
+
+        for i in range(no_messages-1):
+            doses_to_send = {
+                key: doses[key] for key in keys[i*keys_per_message:(i+1)*keys_per_message]}
+            await message.author.send(f'{doses_to_send}')
+
+        doses_to_send = {
+            key: doses[key] for key in keys[(no_messages-1)*keys_per_message:len(keys)]}
+        await message.author.send(f'{doses_to_send}')
 
     else:
         drink_ref = db.collection('basic_drinks').document(
@@ -203,9 +224,13 @@ async def send_help(message):
 %humala: \t Lärvinen tulostaa humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
 %olut/%aolut/%viini/%viina/%siideri <cl> <vol>: \t Lisää  <cl> senttilitraa <%-vol> vahvuista juomaa nautittujen annosten listaasi. <cl> ja <vol> ovat vapaaehtoisia. Käytä desimaalierottimena pistettä. Esim: "%olut 40 7.2" tai "%viini"\n
 %juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n
-%sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n
-%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
+%sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n'''
+
+    await message.channel.send(help)
+
+    help = '''%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
 %peruuta: \t Poistaa edellisen annoksen nautittujen annosten listasta\n
+%annokset <isodate>: \t Lähettää sinulle <isodate> jälkeen nauttimasi annokset. <isodate> muuttujan formaatti tulee olla ISO 8601 mukainen. Parametri on vapaaehtoinen ja oletusarvo on viimeisen viikon annokset. Esim 30.3.2021 klo 20:30:05 UTC jälkeen nautit annokset saa komennolla"%annokset 2021-03-30T20:30:00"\n
 %tiedot <aseta massa sukupuoli>/<poista>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle. Komennolla "%tiedot poista" saat poistettua kaikki tietosi Lärvisen tietokannasta.\n
 %help: \t Tulostaa tämän tekstin'''
 
