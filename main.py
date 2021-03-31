@@ -279,7 +279,8 @@ def get_guild_users(gid, duration_seconds, timestamp_high, user_list=None):
     return users_with_doses
 
 
-def create_plot(message, duration, plot_users, date_high=datetime.datetime.now()):
+def create_plot(message, duration, plot_users, date_high=None):
+    date_high = datetime.datetime.now() if date_high == None else date_high
     vals = {}
     duration_seconds = duration*60*60
 
@@ -404,7 +405,8 @@ def add_user(message, user):
     return user
 
 
-def get_user_doses(uid, duration_seconds, date_high=datetime.datetime.now()):
+def get_user_doses(uid, duration_seconds, date_high=None):
+    date_high = datetime.datetime.now() if date_high == None else date_high
     doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
         'timestamp', '>', date_high.timestamp()-duration_seconds).where('timestamp', '<', date_high.timestamp()).stream()
     doses = {}
@@ -489,7 +491,7 @@ Tiedot kuvaavat alkoholin huippupitoisuuksien summittaisia vaikutuksia alkoholia
 def per_mille(user):
     mass = (user['mass'] or default_mass)
 
-    g_alcohol, _, _ = get_user_alcohol_grams(user)
+    g_alcohol, _, _ = get_user_alcohol_grams(user, datetime.datetime.now())
     if np.any(g_alcohol == None):
         g_alcohol = [0]
 
@@ -518,7 +520,7 @@ def per_mille_values(user, duration_seconds, now, t_interp):
     return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, values[1:-1], t_doses[1:-1]
 
 
-def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration_seconds=86400):
+def get_user_alcohol_grams(user, now, duration_seconds=86400):
     # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
     # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
     # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
