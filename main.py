@@ -101,7 +101,7 @@ async def on_message(message):
         if user != None or (user == None and params[2] != 'false'):
             try:
                 date_high = datetime.datetime.fromisoformat(
-                    capital_params[3], tz=tz.gettz('Europe/Helsinki'))
+                    capital_params[3])
             except:
                 date_high = datetime.datetime.now()
 
@@ -131,7 +131,7 @@ async def on_message(message):
         now = datetime.datetime.now()
         date = datetime.datetime.fromisoformat(
             params[1]) if params[1] != None else datetime.datetime.fromtimestamp(now.timestamp()-7*24*60*60)
-        since = (now.timestamp()-date.timestamp())/60/60-pad_hours
+        since = (now.timestamp()-date.timestamp())
         doses = get_user_doses(message.author.id, since)
         len_str = len(str(doses))
         no_messages = int(len_str/2000.0+1)
@@ -406,7 +406,7 @@ def add_user(message, user):
 
 def get_user_doses(uid, duration_seconds, date_high=datetime.datetime.now()):
     doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
-        'timestamp', '>', date_high.timestamp()-duration_seconds).stream()
+        'timestamp', '>', date_high.timestamp()-duration_seconds).where('timestamp', '<', date_high.timestamp()).stream()
     doses = {}
 
     for dose in doses_ref:
@@ -526,7 +526,8 @@ def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration_seconds=8
     # Miehillä vettä painosta = 0,75*massa
     # Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
 
-    user_doses = get_user_doses(user['id'], duration_seconds+pad_hours*60*60)
+    user_doses = get_user_doses(
+        user['id'], duration_seconds+pad_hours*60*60, now)
 
     if user_doses == None or len(user_doses) == 0:
         return [None]*3
@@ -552,11 +553,12 @@ def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration_seconds=8
 
             g_alcohol -= 0.1*mass*(max(t_doses[i]-t_doses[i-1], 1))/60/60
 
-        if g_alcohol < 0:
+        if g_alcohol <= 0:
             if int(t_doses[i]-absorption_time) < int(t_doses[i] + g_alcohol/0.1/mass*60*60):
                 zeros_to_insert.append([i, int(t_doses[i]-absorption_time)])
-                zeros_to_insert.append(
-                    [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
+                if i != 0:
+                    zeros_to_insert.append(
+                        [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
             else:
                 zeros_to_insert.append(
                     [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
