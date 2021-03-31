@@ -99,8 +99,15 @@ async def on_message(message):
 
     elif msg.startswith('%kuvaaja'):
         if user != None or (user == None and params[2] != 'false'):
+            try:
+                date_high = datetime.datetime.fromisoformat(
+                    capital_params[3], tz=tz.gettz('Europe/Helsinki'))
+            except:
+                date_high = datetime.datetime.now()
+
             create_plot(message, float(
-                params[1] or default_plot_hours), capital_params[2])
+                params[1] or default_plot_hours), capital_params[2], date_high)
+
             await message.channel.send(file=discord.File(open(plot_path, 'rb'), 'larvit.png'))
         else:
             await message.channel.send('Et ole käyttänyt palvelujani aiemmin. Et voi plotata omaa humalatilaasi.')
@@ -113,7 +120,7 @@ async def on_message(message):
 
     elif msg.startswith('%peruuta'):
         dose = get_user_previous_dose(message.author.id)
-        if dose != None and len(dose) > 0:
+        if (dose != None) and ((datetime.datetime.now().timestamp() - dose[list(dose.keys())[0]]['timestamp'])/60/60 < 1):
             db.collection('users').document(user['id']).collection(
                 'doses').document(list(dose.keys())[0]).delete()
             await message.channel.send('Annos poistettu')
@@ -220,7 +227,7 @@ async def send_per_milles(message, user):
 async def send_help(message):
     help = '''Tässä tuntemani komennot. Kaikki komennot toimivat myös yksityisviestillä minulle. Käyttämällä palveluitani hyväksyt tietojesi tallentamisen Googlen palvelimille Yhdysvaltoihin.\n
 %alkoholin_vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
-%kuvaaja <h> <plot_all>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana humalassa olleiden humalatilan. Jotta henkilö voi näkyä palvelimella kuvaajassa, on hänen tullut ilmoittaa vähintään yksi annos tältä palvelimelta. <h> oletusarvo on 24h. <plot_all> on joko true, false tai lista henkilöitä. Oletusarvo on true. \n\tTrue: kaikki <h> aika humalassa olleet henkilöt plotataan kuvaajaan. \n\tFalse: Plotataan pelkästään komennon suorittaja. \n\tLista nimiä: Plotataan listassa olevat henkilöt. Esim [Tino,Aleksi,Henri]. Henkilöt tulee olla erotettu pilkuilla ilman välilyöntejä.\n
+%kuvaaja <h> <user_list> <date>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana alkoholia nauttineiden humalatilan. Jotta henkilö voi näkyä palvelimella kuvaajassa, on hänen tullut ilmoittaa vähintään yksi annos tältä palvelimelta. <h> oletusarvo on 24h. <user_list> on lista henkilöitä, esim [Tino,Aleksi,Henri]. Henkilöt tulee olla erotettu pilkuilla ilman välilyöntejä. Ilman listaa plotataan kaikki palvelimen käyttäjät. <date> on päivämäärä iso formattissa, josta vähennettään <h>, jotta saadaan kuvaajan x-akseli. Esim "%kuvaaja 24 [Tino] 2021-03-30T20:30:00"\n
 %humala: \t Lärvinen tulostaa humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
 %olut/%aolut/%viini/%viina/%siideri <cl> <vol>: \t Lisää  <cl> senttilitraa <%-vol> vahvuista juomaa nautittujen annosten listaasi. <cl> ja <vol> ovat vapaaehtoisia. Käytä desimaalierottimena pistettä. Esim: "%olut 40 7.2" tai "%viini"\n
 %juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n
@@ -229,7 +236,7 @@ async def send_help(message):
     await message.channel.send(help)
 
     help = '''%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
-%peruuta: \t Poistaa edellisen annoksen nautittujen annosten listasta\n
+%peruuta: \t Poistaa edellisen annoksen nautittujen annosten listasta. Edellisen annoksen tulee olla nautittu tunnin sisään\n
 %annokset <isodate>: \t Lähettää sinulle <isodate> jälkeen nauttimasi annokset. <isodate> muuttujan formaatti tulee olla ISO 8601 mukainen. Parametri on vapaaehtoinen ja oletusarvo on viimeisen viikon annokset. Esim 30.3.2021 klo 20:30:05 UTC jälkeen nautit annokset saa komennolla"%annokset 2021-03-30T20:30:00"\n
 %tiedot <aseta massa sukupuoli>/<poista>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle. Komennolla "%tiedot poista" saat poistettua kaikki tietosi Lärvisen tietokannasta.\n
 %help: \t Tulostaa tämän tekstin'''
@@ -237,39 +244,44 @@ async def send_help(message):
     await message.channel.send(help)
 
 
-def get_all_guild_users(gid):
-    users_ref = db.collection('users').where(
-        f'guilds.`{gid}`.member', '==', True).stream()
-
+def get_guild_users(gid, duration_seconds, timestamp_high, user_list=None):
     users = []
-    for user in users_ref:
-        users.append(user.id)
+    users_with_doses = []
 
-    return users
+    if user_list != None:
+        nick_ref = db.collection('users').where(
+            f'guilds.`{gid}`.nick', 'in', user_list).stream()
 
-
-def get_guild_users(gid, user_list):
-    nick_ref = db.collection('users').where(
-        f'guilds.`{gid}`.nick', 'in', user_list).stream()
-
-    users = []
-    for user in nick_ref:
-        users.append(user.id)
-
-    # Only one in, not-in, array_contains_any per query
-    name_ref = db.collection('users').where(f'guilds.`{gid}`.member', '==', True).where(
-        f'guilds.`{gid}`.nick', '==', None).where('name', 'in', user_list).stream()
-
-    for user in name_ref:
-        if user.id not in users:
+        for user in nick_ref:
             users.append(user.id)
 
-    return users
+        # Only one in, not-in, array_contains_any per query
+        name_ref = db.collection('users').where(f'guilds.`{gid}`.member', '==', True).where(
+            f'guilds.`{gid}`.nick', '==', None).where('name', 'in', user_list).stream()
+
+        for user in name_ref:
+            if user.id not in users:
+                users.append(user.id)
+    else:
+        users_ref = db.collection('users').where(
+            f'guilds.`{gid}`.member', '==', True).stream()
+
+        for user in users_ref:
+            users.append(user.id)
+
+    for uid in users:
+        dose_in_range = get_user_previous_dose(
+            int(uid), timestamp_high-duration_seconds, timestamp_high)
+
+        if dose_in_range != None and len(dose_in_range) == 1:
+            users_with_doses.append(uid)
+
+    return users_with_doses
 
 
-def create_plot(message, duration, plot_users):
+def create_plot(message, duration, plot_users, date_high=datetime.datetime.now()):
     vals = {}
-    plotted = False
+    duration_seconds = duration*60*60
 
     plt.clf()
     plt.figure(figsize=(12, 8))
@@ -277,68 +289,50 @@ def create_plot(message, duration, plot_users):
     plt.ylabel('Humalan voimakkuus [‰]')
     plt.xlabel('Aika')
 
-    if plot_users != 'false' and isinstance(message.author, discord.Member):
-        plot_all = True
+    if isinstance(message.author, discord.Member):
         if plot_users != None and plot_users.find('[') != -1 and plot_users.find(']') != -1:
-            guild_users = get_guild_users(message.guild.id, plot_users.replace(
+            guild_users = get_guild_users(message.guild.id, duration_seconds, date_high.timestamp(), plot_users.replace(
                 '[', '').replace(']', '').split(','))
         else:
-            guild_users = get_all_guild_users(message.guild.id)
+            guild_users = get_guild_users(
+                message.guild.id, duration_seconds, date_high.timestamp())
     else:
-        plot_all = False
+        guild_users = [str(message.author.id)]
 
-    # now in utc time
-    now = datetime.datetime.now()
-    if plot_all:
-        for uid in guild_users:
-            uid = int(uid)
-            user = get_user_dict(uid)
-            vals[uid], t_vals, doses, t_doses = per_mille_values_new(
-                user, duration, now)
-            if sum(vals[uid]) > 0:
-                ind_doses = np.searchsorted(
-                    t_vals, t_doses[:-1], side='right')-1
-                ind_doses, counts = np.unique(
-                    ind_doses[ind_doses >= 0], return_counts=True)
-                plotted = True
-                x_values = t_vals
-                plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
-                         label=user_name_or_nick(message, user))
-    else:
-        uid = message.author.id
+    num_points = int(duration*points_per_hour)
+
+    # Interpolate to 1 second before date_high
+    t_vals = np.linspace(-num_points /
+                         points_per_hour*60*60, -1, num_points)+date_high.timestamp()
+
+    for uid in guild_users:
+        uid = int(uid)
         user = get_user_dict(uid)
-        vals[uid], t_vals, doses, t_doses = per_mille_values_new(
-            user, duration, now)
+        vals[uid], doses, t_doses = per_mille_values(
+            user, duration_seconds, date_high, t_vals)
         if sum(vals[uid]) > 0:
-            plotted = True
-            x_values = t_vals
-            ind_doses = np.searchsorted(t_vals, t_doses[:-1], side='right')-1
-            ind_doses, counts = np.unique(
-                ind_doses[ind_doses >= 0], return_counts=True)
+            ind_doses = np.searchsorted(t_vals, t_doses, side='right')-1
+            ind_doses = np.unique(ind_doses[ind_doses >= 0])
             plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
                      label=user_name_or_nick(message, user))
 
-    if plotted:
-        plt.legend()
-        plt.grid()
+    plt.legend()
+    plt.grid()
 
-        # finnish time
-        times = [(datetime.datetime.fromtimestamp(t, tz=tz.gettz(
-            'Europe/Helsinki'))).strftime('%d.%m.%Y %H:%M:%S') for t in x_values]
-        locs = [0]*6
-        labels = ['']*6
-        points = len(x_values)-1
+    # finnish time
+    times = [(datetime.datetime.fromtimestamp(t, tz=tz.gettz(
+        'Europe/Helsinki'))).strftime('%d.%m.%Y %H:%M:%S') for t in t_vals]
+    locs = [0]*6
+    labels = ['']*6
+    points = len(t_vals)-1
 
-        for i in range(6):
-            labels[i] = times[int(i*points/5)]
-            locs[i] = x_values[int(i*points/5)]
+    for i in range(6):
+        labels[i] = times[int(i*points/5)]
+        locs[i] = t_vals[int(i*points/5)]
 
-        plt.xticks(locs, labels, rotation=0)
-        plt.tight_layout()
-        plt.savefig(plot_path)
-    else:
-        plt.clf()
-        plt.savefig(plot_path)
+    plt.xticks(locs, labels, rotation=0)
+    plt.tight_layout()
+    plt.savefig(plot_path)
 
 
 def update_user_base_info(message, user_dict, params=[None, None]):
@@ -410,9 +404,9 @@ def add_user(message, user):
     return user
 
 
-def get_user_doses(uid, duration):
+def get_user_doses(uid, duration_seconds, date_high=datetime.datetime.now()):
     doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
-        'timestamp', '>', datetime.datetime.now().timestamp()-(duration+pad_hours)*60*60).stream()
+        'timestamp', '>', date_high.timestamp()-duration_seconds).stream()
     doses = {}
 
     for dose in doses_ref:
@@ -421,8 +415,8 @@ def get_user_doses(uid, duration):
     return doses
 
 
-def get_user_previous_dose(uid):
-    doses_ref = db.collection('users').document(str(uid)).collection('doses').order_by(
+def get_user_previous_dose(uid, time_low=0, time_high=90000000000):
+    doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
         'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
 
     doses = {}
@@ -502,19 +496,14 @@ def per_mille(user):
     return g_alcohol[-1]/water_multiplier[(user['sex'] or default_sex)]/mass, g_alcohol[-1]/0.1/mass
 
 
-def per_mille_values_new(user, duration, now):
+def per_mille_values(user, duration_seconds, now, t_interp):
     mass = (user['mass'] or default_mass)
 
     values, t_doses, zeros_to_insert = get_user_alcohol_grams(
-        user, now, duration)
+        user, now, duration_seconds)
+
     if np.any(values == None):
-        return [0], [0], [0], [0]
-
-    num_points = int(duration*points_per_hour)
-
-    # Interpolate to 1 second before now
-    t_interp = np.linspace(-num_points /
-                           points_per_hour*60*60, -1, num_points)+now.timestamp()
+        return [0], [0], [0]
 
     for i in range(len(zeros_to_insert)):
         t_doses.insert(zeros_to_insert[i][0]+i, zeros_to_insert[i][1])
@@ -526,10 +515,10 @@ def per_mille_values_new(user, duration, now):
     f = interpolate.interp1d(t_doses, values, kind='linear')
     interp_values = f(t_interp)
 
-    return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, t_interp, values[1:], t_doses[1:]
+    return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, values[1:-1], t_doses[1:-1]
 
 
-def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration=24):
+def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration_seconds=86400):
     # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
     # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
     # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
@@ -537,7 +526,7 @@ def get_user_alcohol_grams(user, now=datetime.datetime.now(), duration=24):
     # Miehillä vettä painosta = 0,75*massa
     # Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
 
-    user_doses = get_user_doses(user['id'], duration)
+    user_doses = get_user_doses(user['id'], duration_seconds+pad_hours*60*60)
 
     if user_doses == None or len(user_doses) == 0:
         return [None]*3
