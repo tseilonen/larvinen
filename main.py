@@ -4,14 +4,24 @@ import matplotlib.pyplot as plt
 import datetime
 import numpy as np
 import pickle
+import sys
+import signal
+import asyncio
 from dateutil import tz
+from google.cloud import firestore
+from scipy import interpolate
 
 client = discord.Client()
+db = firestore.Client()
+
+development = False
 
 default_plot_hours = 24.0
+pad_hours = 96.0
 points_per_hour = 20
 default_mass = 80
 default_sex = 'm'
+first_dose_drinking_time_minutes = 20
 
 doses = {}
 users = {}
@@ -25,19 +35,7 @@ basic_drinks = {'%olut': [4.7, 33],
 special_drinks = {'%juoma': [None, None],
                   '%sama': [None, None]}
 
-users_path = os.getcwd()+'/users.pickle'
-doses_path = os.getcwd()+'/doses.pickle'
-drinks_path = os.getcwd()+'/drinks.pickle'
 plot_path = os.getcwd()+'/plot.png'
-
-if os.path.isfile(users_path):
-    users = pickle.load(open(users_path, 'rb'))
-
-if os.path.isfile(doses_path):
-    doses = pickle.load(open(doses_path, 'rb'))
-
-if os.path.isfile(drinks_path):
-    basic_drinks = pickle.load(open(drinks_path, 'rb'))
 
 # Males have 75% of their weight worth water, females 66%
 water_multiplier = {'m': 0.75, 'f': 0.66}
@@ -46,231 +44,426 @@ water_multiplier = {'m': 0.75, 'f': 0.66}
 @client.event
 async def on_ready():
     print(f'Logattu sisään {client.user}')
+    await message_channels('Olen kuulolla')
 
 
 @client.event
 async def on_message(message):
+    # Return immediately if message is from self
     if message.author == client.user:
         return
 
+    capital_params = parse_params(message.content)
+    message.content = message.content.lower()
     msg = message.content
 
-    if msg.startswith('%alkoholin vaikutukset'):
+    # Get user dict, if there is no entry in db, then user = None
+    user = get_user_dict(message.author.id)
+    params = parse_params(msg)
+
+    if msg.startswith('%alkoholin_vaikutukset'):
         await message.channel.send(alco_info())
 
-    if msg.startswith('%kuvaaja'):
-        params = parse_params(msg)
-
-        create_plot(message, float(
-            params[1] or default_plot_hours), params[2] != 'false')
-        await message.channel.send(file=discord.File(open(plot_path, 'rb'), 'larvit.png'))
-
-    if msg.startswith('%humala'):
-        await send_per_milles(message)
-
-    if msg.startswith('%help'):
+    elif msg.startswith('%help'):
         await send_help(message)
 
-    if msg.startswith('%tiedot'):
-        params = parse_params(msg)
-
-        if params[1] == 'aseta':
-            set_personal_info(message, params)
-
-        if message.author.id in users:
-            await message.author.send(f'Nimi: {users[message.author.id]["name"]}\nMassa: {users[message.author.id]["mass"]}\nSukupuoli: {users[message.author.id]["sex"]}')
-        else:
-            await message.author.send('Et ole aiemmin käyttänyt palvelujani. Jos haluat asettaa tietosi, lähetä "%tiedot aseta <massa[kg]> <sukupuoli[m/f]>"')
-
-    if msg.startswith('%menu'):
-        drink_list = generate_drink_list()
+    elif msg.startswith('%menu'):
+        drink_list, _ = generate_drink_list()
         await message.channel.send(f'{drink_list}')
 
-    if sum([msg.startswith(drink) for drink in (list(basic_drinks.keys()) + list(special_drinks.keys()))]) == 1:
-        success = add_dose(message)
+    elif msg.startswith('%tiedot'):
 
-        if not success:
-            await message.author.send('Juoman lisääminen epäonnistui')
+        if params[1] == 'aseta':
+            user = set_personal_info(message, params, user)
+        elif params[1] == 'poista' and user != None:
+            if params[2] == None:
+                await message.author.send(f'Mikäli haluat poistaa kaikki tietosi tietokannasta, vastaa tähän viestiin "%tiedot poista {user["id"]}"')
+            elif params[2] == str(message.author.id):
+                doses_ref = db.collection('users').document(
+                    user['id']).collection('doses')
+                delete_collection(doses_ref, 16)
+
+                db.collection('users').document(user['id']).delete()
+                await asyncio.sleep(0.5)
+                user = get_user_dict(message.author.id)
+            else:
+                await message.author.send('Komento on väärin kirjoitettu, tietoja ei poistettu')
+
+        if user != None:
+            await message.author.send(f'Nimi: {user["name"]}\nMassa: {user["mass"]:.0f}\nSukupuoli: {user["sex"]}')
         else:
-            if not isinstance(message.channel, discord.channel.DMChannel):
-                await message.delete()
-            await send_per_milles(message)
+            await message.author.send('Et ole aiemmin käyttänyt palvelujani. Jos haluat asettaa tietosi, lähetä "%tiedot aseta <massa> [m/f]", esim. 80kg mies: "%tiedot aseta 80 m"')
+
+        if not isinstance(message.channel, discord.channel.DMChannel):
+            await message.delete()
+
+    elif msg.startswith('%kuvaaja'):
+        if user != None or (user == None and params[2] != 'false'):
+            try:
+                date_high = datetime.datetime.fromisoformat(
+                    capital_params[3])
+            except:
+                date_high = datetime.datetime.now()
+
+            create_plot(message, float(
+                params[1] or default_plot_hours), capital_params[2], date_high)
+
+            await message.channel.send(file=discord.File(open(plot_path, 'rb'), 'larvit.png'))
+        else:
+            await message.channel.send('Et ole käyttänyt palvelujani aiemmin. Et voi plotata omaa humalatilaasi.')
+
+    elif msg.startswith('%humala'):
+        if user != None:
+            await send_per_milles(message, user)
+        else:
+            await message.channel.send('Et ole aiemmin käyttänyt palvelujani. Et voi tiedustella humalatilaasi.')
+
+    elif msg.startswith('%peruuta'):
+        dose = get_user_previous_dose(message.author.id)
+        if (dose != None) and ((datetime.datetime.now().timestamp() - dose[list(dose.keys())[0]]['timestamp'])/60/60 < 1):
+            db.collection('users').document(user['id']).collection(
+                'doses').document(list(dose.keys())[0]).delete()
+            await message.channel.send('Annos poistettu')
+        else:
+            await message.channel.send('Ei löydetty annosta mitä poistaa')
+
+    elif msg.startswith('%annokset'):
+        now = datetime.datetime.now()
+        date = datetime.datetime.fromisoformat(
+            params[1]) if params[1] != None else datetime.datetime.fromtimestamp(now.timestamp()-7*24*60*60)
+        since = (now.timestamp()-date.timestamp())
+        doses = get_user_doses(message.author.id, since)
+        len_str = len(str(doses))
+        no_messages = int(len_str/2000.0+1)
+
+        keys_per_message = int(len(doses)/no_messages)
+        keys = list(doses.keys())
+
+        for i in range(no_messages-1):
+            doses_to_send = {
+                key: doses[key] for key in keys[i*keys_per_message:(i+1)*keys_per_message]}
+            await message.author.send(f'{doses_to_send}')
+
+        doses_to_send = {
+            key: doses[key] for key in keys[(no_messages-1)*keys_per_message:len(keys)]}
+        await message.author.send(f'{doses_to_send}')
+
+    else:
+        drink_ref = db.collection('basic_drinks').document(
+            params[0]).get().to_dict()
+
+        if drink_ref != None or sum([msg.startswith(drink) for drink in list(special_drinks.keys())]) == 1:
+            user, success = add_dose(message, user)
+
+            if not success:
+                await message.author.send('Juoman lisääminen epäonnistui')
+            else:
+                if not isinstance(message.channel, discord.channel.DMChannel):
+                    await message.delete()
+            await asyncio.sleep(0.5)
+            await send_per_milles(message, user)
+
+
+def get_user_dict(uid):
+    # returns None if there is no entry in db
+    user = db.collection('users').document(str(uid)).get().to_dict()
+    return user
+
+
+def delete_collection(coll_ref, batch_size):
+    docs = coll_ref.limit(batch_size).stream()
+    deleted = 0
+
+    for doc in docs:
+        print(f'Deleting doc {doc.id} => {doc.to_dict()}')
+        doc.reference.delete()
+        deleted = deleted + 1
+
+    if deleted >= batch_size:
+        return delete_collection(coll_ref, batch_size)
 
 
 def generate_drink_list():
-    return "".join([drink + "\t\t" + str(basic_drinks[drink][1]) +
-                    " cl \t\t" + str(basic_drinks[drink][0]) + " %\n" for drink in basic_drinks])
+    drinks_ref = db.collection('basic_drinks').stream()
+    drink_string = ''
+    drink_list = []
+    for drink in drinks_ref:
+        drink_dict = drink.to_dict()
+        drink_string += f'{drink.id}\t\t{drink_dict["volume"]:.1f} cl \t\t{drink_dict["alcohol"]:.1f} %\n'
+        drink_list.append(drink.id)
+
+    return drink_string, drink_list
 
 
-def set_personal_info(message, params):
-    if message.author.id not in users:
-        add_user(message)
+def set_personal_info(message, params, user):
+    if user == None:
+        user = add_user(message, user)
 
-    update_user_base_info(message, [float(params[2]), params[3]])
-    update_user_guild_info(message)
-    save_users()
+    # print([float(params[2]), params[3]])
+    update_user_base_info(message, user, [float(params[2]), params[3]])
+    update_user_guild_info(message, user)
+
+    return user
 
 
-def user_name_or_nick(message, uid=None):
-    if uid == None:
-        uid = message.author.id
-
+def user_name_or_nick(message, user, uid=None):
     if isinstance(message.author, discord.Member):
         try:
-            return (users[uid]['guilds'][message.guild.id]['nick'] or users[uid]['name'])
+            return (user['guilds'][str(message.guild.id)]['nick'] or user['name'])
         except:
             pass
 
-    return users[uid]['name']
+    return user['name']
 
 
-async def send_per_milles(message):
-    per_milles, sober_in = per_mille(message.author.id)
-    name = user_name_or_nick(message)
+async def send_per_milles(message, user):
+    per_milles, sober_in = per_mille(user)
+    name = user_name_or_nick(message, user)
 
-    await message.author.send(f'{name}: {per_milles:.2f} promillea\n'
-                              + f'Alkoholi on poistunut elimistöstäsi aikaisintaan {sober_in:.0f} tunnin {int(sober_in%1*60):.0f} minuutin kuluttua')
+    await message.channel.send(f'{name}: {per_milles:.2f} promillea\n'
+                               + f'Alkoholi on poistunut elimistöstäsi aikaisintaan {sober_in:.0f} tunnin {int(sober_in%1*60):.0f} minuutin kuluttua')
 
 
 async def send_help(message):
-    drink_list = generate_drink_list()
-    help = f'''%alkoholin vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
-%kuvaaja <h> <plot_all>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana humalassa olleiden humalatilan. <h> oletusarvo on 24h. <plot_all> on boolean, joka määrittää plotataanko kaikki käyttäjät, vai vain komennon suorittaja. Oletusarvoisesti true.\n
-%humala: \t Lärvinen lähettää sinulle humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
+    help = '''Tässä tuntemani komennot. Kaikki komennot toimivat myös yksityisviestillä minulle. Käyttämällä palveluitani hyväksyt tietojesi tallentamisen Googlen palvelimille Yhdysvaltoihin.\n
+%alkoholin_vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
+%kuvaaja <h> <user_list> <date>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana alkoholia nauttineiden humalatilan. Jotta henkilö voi näkyä palvelimella kuvaajassa, on hänen tullut ilmoittaa vähintään yksi annos tältä palvelimelta. <h> oletusarvo on 24h. <user_list> on lista henkilöitä, esim [Tino,Aleksi,Henri]. Henkilöt tulee olla erotettu pilkuilla ilman välilyöntejä. Ilman listaa plotataan kaikki palvelimen käyttäjät. <date> on päivämäärä iso formattissa, josta vähennettään <h>, jotta saadaan kuvaajan x-akseli. Esim "%kuvaaja 24 [Tino] 2021-03-30T20:30:00"\n
+%humala: \t Lärvinen tulostaa humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
 %olut/%aolut/%viini/%viina/%siideri <cl> <vol>: \t Lisää  <cl> senttilitraa <%-vol> vahvuista juomaa nautittujen annosten listaasi. <cl> ja <vol> ovat vapaaehtoisia. Käytä desimaalierottimena pistettä. Esim: "%olut 40 7.2" tai "%viini"\n
-Oletusarvot
-Juoma\tTilavuus\tAlkoholipitoisuus(%-vol)
-{drink_list}
-%juoma <cl> <vol>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Molemmat parametrit ovat pakollisia\n
-%sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n
-%menu: \t Tulostaa mahdollisten juomien listan\n
-%tiedot <aseta massa sukupuoli>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä.\n
+%juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n
+%sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n'''
+
+    await message.channel.send(help)
+
+    help = '''%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
+%peruuta: \t Poistaa edellisen annoksen nautittujen annosten listasta. Edellisen annoksen tulee olla nautittu tunnin sisään\n
+%annokset <isodate>: \t Lähettää sinulle <isodate> jälkeen nauttimasi annokset. <isodate> muuttujan formaatti tulee olla ISO 8601 mukainen. Parametri on vapaaehtoinen ja oletusarvo on viimeisen viikon annokset. Esim 30.3.2021 klo 20:30:05 UTC jälkeen nautit annokset saa komennolla"%annokset 2021-03-30T20:30:00"\n
+%tiedot <aseta massa sukupuoli>/<poista>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle. Komennolla "%tiedot poista" saat poistettua kaikki tietosi Lärvisen tietokannasta.\n
 %help: \t Tulostaa tämän tekstin'''
 
     await message.channel.send(help)
 
 
-def create_plot(message, duration, plot_all):
+def get_guild_users(gid, duration_seconds, timestamp_high, user_list=None):
+    users = []
+    users_with_doses = []
 
+    if user_list != None:
+        nick_ref = db.collection('users').where(
+            f'guilds.`{gid}`.nick', 'in', user_list).stream()
+
+        for user in nick_ref:
+            users.append(user.id)
+
+        # Only one in, not-in, array_contains_any per query
+        name_ref = db.collection('users').where(f'guilds.`{gid}`.member', '==', True).where(
+            f'guilds.`{gid}`.nick', '==', None).where('name', 'in', user_list).stream()
+
+        for user in name_ref:
+            if user.id not in users:
+                users.append(user.id)
+    else:
+        users_ref = db.collection('users').where(
+            f'guilds.`{gid}`.member', '==', True).stream()
+
+        for user in users_ref:
+            users.append(user.id)
+
+    for uid in users:
+        dose_in_range = get_user_previous_dose(
+            int(uid), timestamp_high-duration_seconds, timestamp_high)
+
+        if dose_in_range != None and len(dose_in_range) == 1:
+            users_with_doses.append(uid)
+
+    return users_with_doses
+
+
+def create_plot(message, duration, plot_users, date_high=None):
+    date_high = datetime.datetime.now() if date_high == None else date_high
     vals = {}
-    points = int(duration*points_per_hour)
-    t_deltas = np.linspace(-duration*60*60, 0, points+1)
-    now = datetime.datetime.now(tz.gettz('Europe/Helsinki'))
-    times = [(now+datetime.timedelta(seconds=t)).strftime('%d.%m.%Y %H:%M:%S')
-             for t in t_deltas]
+    duration_seconds = duration*60*60
 
     plt.clf()
+    plt.figure(figsize=(12, 8))
     plt.title('Käyttäjien humalatilat')
     plt.ylabel('Humalan voimakkuus [‰]')
     plt.xlabel('Aika')
 
-    if plot_all and isinstance(message.author, discord.Member):
-        for user in doses:
-            if message.guild.id in users[user]['guilds']:
-                vals[user] = per_mille_values(user, duration)
-                plt.plot(vals[user], label=user_name_or_nick(message, user))
+    if isinstance(message.author, discord.Member):
+        if plot_users != None and plot_users.find('[') != -1 and plot_users.find(']') != -1:
+            guild_users = get_guild_users(message.guild.id, duration_seconds, date_high.timestamp(), plot_users.replace(
+                '[', '').replace(']', '').split(','))
+        else:
+            guild_users = get_guild_users(
+                message.guild.id, duration_seconds, date_high.timestamp())
     else:
-        user = message.author.id
-        vals[user] = per_mille_values(user, duration)
-        plt.plot(vals[user], label=user_name_or_nick(message, user))
+        guild_users = [str(message.author.id)]
+
+    num_points = int(duration*points_per_hour)
+
+    # Interpolate to 1 second before date_high
+    t_vals = np.linspace(-num_points /
+                         points_per_hour*60*60, -1, num_points)+date_high.timestamp()
+
+    for uid in guild_users:
+        uid = int(uid)
+        user = get_user_dict(uid)
+        vals[uid], doses, t_doses = per_mille_values(
+            user, duration_seconds, date_high, t_vals)
+        if sum(vals[uid]) > 0:
+            ind_doses = np.searchsorted(t_vals, t_doses, side='right')-1
+            ind_doses = np.unique(ind_doses[ind_doses >= 0])
+            plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
+                     label=user_name_or_nick(message, user))
 
     plt.legend()
     plt.grid()
 
+    # finnish time
+    times = [(datetime.datetime.fromtimestamp(t, tz=tz.gettz(
+        'Europe/Helsinki'))).strftime('%d.%m.%Y %H:%M:%S') for t in t_vals]
     locs = [0]*6
     labels = ['']*6
+    points = len(t_vals)-1
+
     for i in range(6):
         labels[i] = times[int(i*points/5)]
-        locs[i] = int(i*points/5)
+        locs[i] = t_vals[int(i*points/5)]
 
-    plt.xticks(locs, labels, rotation=20)
+    plt.xticks(locs, labels, rotation=0)
     plt.tight_layout()
     plt.savefig(plot_path)
 
 
-def update_user_base_info(message, params=[None, None]):
+def update_user_base_info(message, user_dict, params=[None, None]):
     uid = message.author.id
+    user_modified = False
 
-    users[uid]['name'] = message.author.name
-    users[uid]['mass'] = (params[0] or users[uid]['mass'])
-    users[uid]['sex'] = (params[1] or users[uid]['sex'])
+    if (user_dict['name'] != message.author.name):
+        user_dict['name'] = message.author.name
+        user_modified = True
+
+    if ((params[0] != None) and (params[0] != user_dict['mass'])):
+        user_dict['mass'] = float(params[0])
+        user_modified = True
+
+    if ((params[1] != None) and (params[0] != user_dict['sex'])):
+        user_dict['sex'] = params[1]
+        user_modified = True
+
+    if user_modified:
+        user_ref = db.collection('users').document(str(uid))
+        user_ref.update(
+            {'name': user_dict['name'], 'mass': user_dict['mass'], 'sex': user_dict['sex']})
+
+    return user_dict
 
 
-def update_user_guild_info(message):
+def update_user_guild_info(message, user):
     uid = message.author.id
-    modified = False
 
     # If message is sent from a dm channel, author is instance of user, not member. User doesn't have nick attribute
     if (isinstance(message.author, discord.Member)):
         gid = message.author.guild.id
+        sgid = str(gid)
 
-    if gid not in users[uid]['guilds']:
-        users[uid]['guilds'][gid] = {}
-        users[uid]['guilds'][gid]['nick'] = message.author.nick
-        modified = True
+        user_modified = False
+        if sgid not in user['guilds']:
+            user['guilds'][sgid] = {}
+            user['guilds'][sgid]['nick'] = message.author.nick
+            user['guilds'][sgid]['member'] = True
+            user['guilds'][sgid]['guildname'] = message.guild.name
+            user_modified = True
 
-    if message.author.nick != users[uid]['guilds'][gid]['nick']:
-        users[uid]['guilds'][gid]['nick'] = message.author.nick
-        modified = True
+        if (message.author.nick != user['guilds'][sgid]['nick']) or (message.guild.name != user['guilds'][sgid]['guildname']):
+            user['guilds'][sgid]['nick'] = message.author.nick
+            user_modified = True
 
-    return modified
+        if user_modified:
+            db.collection('users').document(
+                str(uid)).update({'guilds': user['guilds']})
+
+    return user
 
 
-def add_user(message):
-    modified = False
+def add_user(message, user):
     uid = message.author.id
 
-    if uid not in users:
-        users[uid] = {}
-        users[uid]['guilds'] = {}
-        users[uid]['name'] = None
-        users[uid]['sex'] = None
-        users[uid]['mass'] = None
+    if user == None:
+        user = {}
+        user['guilds'] = {}
+        user['name'] = None
+        user['sex'] = None
+        user['mass'] = None
+        user['id'] = str(uid)
+        db.collection('users').document(str(uid)).set(user)
 
-    update_user_base_info(message)
-    modified = True
+    update_user_base_info(message, user)
+    update_user_guild_info(message, user)
 
-    modified = max(update_user_guild_info(message), modified)
-
-    return modified
+    return user
 
 
-def add_dose(message):
-    write_users = add_user(message)
-    write_basic_drinks = False
+def get_user_doses(uid, duration_seconds, date_high=None):
+    date_high = datetime.datetime.now() if date_high == None else date_high
+    doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
+        'timestamp', '>', date_high.timestamp()-duration_seconds).where('timestamp', '<', date_high.timestamp()).stream()
+    doses = {}
 
-    if (message.author.id not in doses):
-        doses[message.author.id] = {}
+    for dose in doses_ref:
+        doses[dose.id] = dose.to_dict()
 
+    return doses
+
+
+def get_user_previous_dose(uid, time_low=0, time_high=90000000000):
+    doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
+        'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
+
+    doses = {}
+    for dose in doses_ref:
+        doses[dose.id] = dose.to_dict()
+
+    return doses
+
+
+def add_dose(message, user):
+    user = add_user(message, user)
     attributes = parse_params(message.content)
+    drink = db.collection('basic_drinks').document(
+        attributes[0]).get().to_dict()
 
-    if (attributes[0] in basic_drinks):
-        doses[message.author.id][int(message.created_at.timestamp())] = float(
-            attributes[1] or basic_drinks[attributes[0]][1])*float((attributes[2] or basic_drinks[attributes[0]][0]))/100
-    elif ((attributes[0] == '%juoma') and (attributes[1] != None) and (attributes[2] != None)):
-        doses[message.author.id][int(message.created_at.timestamp())] = float(
-            attributes[1])*float(attributes[2])/100
-        if attributes[3] != None:
-            basic_drinks['%' + attributes[3].replace('%', '')] = [
-                float(attributes[2]), float(attributes[1])]
-            write_basic_drinks = True
-    elif (attributes[0] == '%sama') and (len(doses[message.author.id]) > 0):
-        doses[message.author.id][int(message.created_at.timestamp(
-        ))] = doses[message.author.id][list(doses[message.author.id].keys())[-1]]
+    if drink != None:
+        new_dose = float(attributes[1] or drink['volume']) * \
+            float((attributes[2] or drink['alcohol']))/100
     else:
-        return 0
+        drink = {'volume': None, 'alcohol': None}
 
-    if write_users:
-        save_users()
+        if ((attributes[0] == '%juoma') and (attributes[1] != None) and (attributes[2] != None)):
+            new_dose = float(attributes[1])*float(attributes[2])/100
 
-    if write_basic_drinks:
-        with open(drinks_path, 'wb') as file:
-            pickle.dump(basic_drinks, file)
+            if attributes[3] != None:
+                db.collection('basic_drinks').document(
+                    '%' + attributes[3].replace('%', '')).set({'alcohol': float(attributes[2]), 'volume': float(attributes[1])})
 
-    with open(doses_path, 'wb') as file:
-        pickle.dump(doses, file)
+        elif (attributes[0] == '%sama'):
+            previous_dose = list(get_user_previous_dose(
+                message.author.id).values())[-1]
+            if previous_dose == None:
+                return user, 0
+            else:
+                attributes[0] = previous_dose['drink']
+                attributes[1] = previous_dose['volume']
+                attributes[2] = previous_dose['alcohol']
+                new_dose = previous_dose['pure_alcohol']
+        else:
+            return 0
 
-    return 1
+    # Convert to int first to get rid of decimals
+    db.collection('users').document(str(message.author.id)).collection(
+        'doses').document(str(int(message.created_at.timestamp()))).set({'drink': attributes[0], 'volume': (attributes[1] or drink['volume']), 'alcohol': (attributes[2] or drink['alcohol']), 'pure_alcohol': new_dose, 'timestamp': int(message.created_at.timestamp())})
+    return user, 1
 
 
 def parse_params(msg):
@@ -281,11 +474,6 @@ def parse_params(msg):
         attributes[i] = msg_list[i]
 
     return attributes
-
-
-def save_users():
-    with open(users_path, 'wb') as file:
-        pickle.dump(users, file)
 
 
 def alco_info():
@@ -301,94 +489,127 @@ Tiedot kuvaavat alkoholin huippupitoisuuksien summittaisia vaikutuksia alkoholia
 
 
 def per_mille(user):
+    mass = (user['mass'] or default_mass)
+
+    g_alcohol, _, _ = get_user_alcohol_grams(user, datetime.datetime.now())
+    if np.any(g_alcohol == None):
+        g_alcohol = [0]
+
+    return g_alcohol[-1]/water_multiplier[(user['sex'] or default_sex)]/mass, g_alcohol[-1]/0.1/mass
+
+
+def per_mille_values(user, duration_seconds, now, t_interp):
+    mass = (user['mass'] or default_mass)
+
+    values, t_doses, zeros_to_insert = get_user_alcohol_grams(
+        user, now, duration_seconds)
+
+    if np.any(values == None):
+        return [0], [0], [0]
+
+    for i in range(len(zeros_to_insert)):
+        t_doses.insert(zeros_to_insert[i][0]+i, zeros_to_insert[i][1])
+        values = np.insert(values, zeros_to_insert[i][0]+i, 0.0)
+
+    t_doses.insert(0, t_interp[0]-1)
+    values = np.insert(values, 0, 0.0)
+
+    f = interpolate.interp1d(t_doses, values, kind='linear')
+    interp_values = f(t_interp)
+
+    return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, values[1:-1], t_doses[1:-1]
+
+
+def get_user_alcohol_grams(user, now, duration_seconds=86400):
     # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
     # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
     # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
     # Naisilla vettä painosta = 0,66*massa
     # Miehillä vettä painosta = 0,75*massa
-    # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
+    # Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
 
-    if user not in doses:
-        return 0, 0
+    user_doses = get_user_doses(
+        user['id'], duration_seconds+pad_hours*60*60, now)
 
-    mass = (users[user]['mass'] or default_mass)
+    if user_doses == None or len(user_doses) == 0:
+        return [None]*3
 
-    t_doses = list(doses[user].keys())
-    now = datetime.datetime.now()
-    g_alcohol = 0
+    mass = (user['mass'] or default_mass)
+
+    t_doses = list(user_doses.keys())
+    # Make last datapoint to be at current timestamp
+    t_doses.append(int(now.timestamp()))
+    user_doses[str(int(now.timestamp()))] = {'pure_alcohol': 0.0}
+    t_doses = [int(t) for t in t_doses]
+
+    g_alcohol = 0.0
+    values = np.zeros(len(t_doses), dtype=float)
+    zeros_to_insert = []
 
     for i in range(len(t_doses)):
-        g_alcohol += doses[user][t_doses[i]]*7.9
-
-        if i < (len(t_doses)-1):
-            g_alcohol -= 0.1*mass*(t_doses[i+1]-t_doses[i])/60/60
+        if i == 0:
+            absorption_time = first_dose_drinking_time_minutes*60
         else:
-            g_alcohol -= 0.1*mass * \
-                max((int(now.timestamp())-t_doses[i]), 1)/60/60
+            absorption_time = min(
+                first_dose_drinking_time_minutes*60, t_doses[i]-t_doses[i-1])
 
-        g_alcohol = max(g_alcohol, 0.0)
+            g_alcohol -= 0.1*mass*(max(t_doses[i]-t_doses[i-1], 1))/60/60
 
-    return g_alcohol/water_multiplier[(users[user]['sex'] or default_sex)]/mass, g_alcohol/0.1/mass
+        if g_alcohol <= 0:
+            if int(t_doses[i]-absorption_time) < int(t_doses[i] + g_alcohol/0.1/mass*60*60):
+                zeros_to_insert.append([i, int(t_doses[i]-absorption_time)])
+                if i != 0:
+                    zeros_to_insert.append(
+                        [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
+            else:
+                zeros_to_insert.append(
+                    [i, int(t_doses[i] + g_alcohol/0.1/mass*60*60)])
 
+                if i < (len(t_doses)-1):
+                    zeros_to_insert.append(
+                        [i, int(t_doses[i]-absorption_time)])
 
-def per_mille_values(user, duration):
+            g_alcohol = 0.0
 
-    # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
-    # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
-    # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
-    # Naisilla vettä painosta = 0,66*massa
-    # Miehillä vettä painosta = 0,75*massa
-    # Nyrkkisääntö ilman tietoja, 0,1 g/h/kg
-    if user not in doses:
-        return 0
-
-    mass = (users[user]['mass'] or default_mass)
-
-    t_doses = list(doses[user].keys())
-    now = datetime.datetime.now()
-    g_alcohol = 0
-    num_points = int(duration*points_per_hour)
-    default_points = int(default_plot_hours*points_per_hour)
-    interpolation_points = num_points+default_points
-    values = np.zeros(interpolation_points, dtype=float)
-    t_deltas = np.linspace(-interpolation_points /
-                           points_per_hour*60*60, 0, interpolation_points)
-    t_next_dose = t_doses[0]
-    dose_index = 0
-    previous_time = int(
-        (now+datetime.timedelta(seconds=t_deltas[0]-1)).timestamp())
-
-    while t_doses[dose_index] < previous_time:
-        dose_index += 1
-        t_next_dose = t_doses[dose_index]
-
-    for i in range(interpolation_points):
-        time = int((now+datetime.timedelta(seconds=t_deltas[i])).timestamp())
-
-        if time > t_next_dose:
-            while (t_next_dose-time) <= (time-previous_time):
-                g_alcohol += doses[user][t_doses[dose_index]]*7.9
-                dose_index += 1
-
-                if dose_index > (len(t_doses)-1):
-                    t_next_dose = int(
-                        (datetime.datetime.now()+datetime.timedelta(days=1)).timestamp())
-                else:
-                    t_next_dose = t_doses[dose_index]
-
-        g_alcohol -= 0.1*mass*(time-previous_time)/60/60
+        g_alcohol += user_doses[str(t_doses[i])]['pure_alcohol']*7.9
 
         g_alcohol = max(g_alcohol, 0.0)
         values[i] = g_alcohol
-        previous_time = time
 
-    return values[default_points:]/water_multiplier[(users[user]['sex'] or default_sex)]/mass
-
-
-async def remove_sober():
-    for key in drunk:
-        if per_mille(drunk[key]) == 0:
-            print('wololoo')
+    return values, t_doses, zeros_to_insert
 
 
-client.run(os.getenv('DISCORDTOKEN'))
+async def message_channels(message):
+    guilds = client.guilds
+    for guild in guilds:
+        for channel in guild.channels:
+            if not development and (channel.name.lower() == 'lärvinen'):
+                await channel.send(message)
+
+
+async def sigterm(loop):
+    await message_channels('Minut on sammutettu ylläpitoa varten')
+    loop.stop()
+
+
+def start(vals):
+    global development
+    development = True if vals[-1] == 'dev' else False
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(
+        signal.SIGTERM, lambda: asyncio.create_task(sigterm(loop)))
+    loop.add_signal_handler(
+        signal.SIGINT, lambda: asyncio.create_task(sigterm(loop)))
+
+    try:
+        loop.run_until_complete(client.start(os.getenv('DISCORDTOKEN')))
+    except:
+        loop.run_until_complete(client.logout())
+        # cancel all tasks lingering
+    finally:
+        loop.close()
+
+
+if __name__ == "__main__":
+    start(sys.argv)
