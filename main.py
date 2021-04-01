@@ -10,6 +10,7 @@ import asyncio
 from dateutil import tz
 from google.cloud import firestore
 from scipy import interpolate
+from alko import Alko, DRINK_QUERY_PARAMS
 
 client = discord.Client()
 db = firestore.Client()
@@ -18,7 +19,7 @@ development = False
 
 default_plot_hours = 24.0
 pad_hours = 96.0
-points_per_hour = 20
+points_per_hour = 60
 default_mass = 80
 default_sex = 'm'
 first_dose_drinking_time_minutes = 20
@@ -118,6 +119,15 @@ async def on_message(message):
         else:
             await message.channel.send('Et ole aiemmin käyttänyt palvelujani. Et voi tiedustella humalatilaasi.')
 
+    elif msg.startswith('%suosittele'):
+        recommend_params = parse_recommend(msg)
+        random = alko.random_drink(recommend_params)
+
+        if random != None:
+            await message.channel.send(f'Tuote: {random["nimi"]}\nVahvuus: {(random["alkoholi"] or 0):.1f} %\nPullokoko: {(random["pullokoko"] or 0):.2f} l\nHinta: {random["hinta"]:.2f} €\nLinkki: https://alko.fi/tuotteet/{random["numero"]}')
+        else:
+            await message.channel.send('Hakuehdoilla ei löytynyt yhtään juomaa')
+
     elif msg.startswith('%peruuta'):
         dose = get_user_previous_dose(message.author.id)
         if (dose != None) and ((datetime.datetime.now().timestamp() - dose[list(dose.keys())[0]]['timestamp'])/60/60 < 1):
@@ -168,6 +178,20 @@ def get_user_dict(uid):
     # returns None if there is no entry in db
     user = db.collection('users').document(str(uid)).get().to_dict()
     return user
+
+
+def parse_recommend(msg):
+    params = msg.split(' ')
+    params_list = list(DRINK_QUERY_PARAMS.keys())
+    params_dict = {}
+
+    for param in params:
+        for drink_param in params_list:
+            if param.startswith(drink_param):
+                params_dict[drink_param] = param.split(drink_param)[1].replace(':','')
+
+    return params_dict
+
 
 
 def delete_collection(coll_ref, batch_size):
@@ -235,10 +259,11 @@ async def send_help(message):
 
     await message.channel.send(help)
 
-    help = '''%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
+    help = f'''%menu: \t Tulostaa mahdollisten juomien listan, juomien oletus vahvuuden ja juoman oletus tilavuuden\n
 %peruuta: \t Poistaa edellisen annoksen nautittujen annosten listasta. Edellisen annoksen tulee olla nautittu tunnin sisään\n
 %annokset <isodate>: \t Lähettää sinulle <isodate> jälkeen nauttimasi annokset. <isodate> muuttujan formaatti tulee olla ISO 8601 mukainen. Parametri on vapaaehtoinen ja oletusarvo on viimeisen viikon annokset. Esim 30.3.2021 klo 20:30:05 UTC jälkeen nautit annokset saa komennolla"%annokset 2021-03-30T20:30:00"\n
 %tiedot <aseta massa sukupuoli>/<poista>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla "%tiedot aseta <massa> <m/f>" saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa yksityisviestillä Lärviselle. Komennolla "%tiedot poista" saat poistettua kaikki tietosi Lärvisen tietokannasta.\n
+%suosittele <ehto:arvo>: \t Lärvinen suosittelee sinulle alkon valikoimasta satunnaista juomaa antamillasi ehdoilla. Mahdolliset ehdot: {list(DRINK_QUERY_PARAMS.keys())}\n
 %help: \t Tulostaa tämän tekstin'''
 
     await message.channel.send(help)
@@ -595,6 +620,9 @@ async def sigterm(loop):
 def start(vals):
     global development
     development = True if vals[-1] == 'dev' else False
+
+    global alko
+    alko = Alko()
 
     loop = asyncio.get_event_loop()
     loop.add_signal_handler(
