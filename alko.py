@@ -3,33 +3,40 @@ import os
 import pandas as pd
 import numpy as np
 
-DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?', 'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
+DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
+                      'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
+
+db_name = 'alko.db'
+catalogue_name = '/alkon-hinnasto-tekstitiedostona.xlsx'
+
 
 class Alko():
     connection = None
 
     def __init__(self):
-        self.connection = sqlite3.connect(os.getcwd()+'/alko.db')
-        query='SELECT name FROM sqlite_master WHERE type="table" AND name="juomat"'
+        self.connection = sqlite3.connect(os.getcwd()+db_name)
+        query = 'SELECT name FROM sqlite_master WHERE type="table" AND name="juomat"'
         cursor = self.connection()
         cursor.execute(query)
         row = cursor.fetchone()
-        if row == None and os.path.isfile(os.getcwd()+'/alkon-hinnasto-tekstitiedostona.xlsx'):
+        if row == None and os.path.isfile(os.getcwd()+catalogue_name):
             db_init()
 
     def random_item(self):
         cursor = self.connection.cursor()
         fields = ['numero', 'nimi', 'alkoholi', 'hinta', 'pullokoko']
-        str_fields = str(fields)[1:-1].replace("\'","")
-        cursor.execute(f'SELECT {str_fields} FROM juomat ORDER BY RANDOM() LIMIT 1')
+        str_fields = str(fields)[1:-1].replace("\'", "")
+        cursor.execute(
+            f'SELECT {str_fields} FROM juomat ORDER BY RANDOM() LIMIT 1')
         row = cursor.fetchone()
         return({fields[i]: row[i] for i in range(len(fields))})
 
     def random_drink(self, params):
         cursor = self.connection.cursor()
         fields = ['numero', 'nimi', 'alkoholi', 'hinta', 'pullokoko']
-        str_fields = str(fields)[1:-1].replace("\'","")
-        params_dict = DRINK_QUERY_PARAMS #{'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?', 'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
+        str_fields = str(fields)[1:-1].replace("\'", "")
+        # {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?', 'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
+        params_dict = DRINK_QUERY_PARAMS
         str_where = ''
         params_list = []
         for param in list(params_dict.keys()):
@@ -48,7 +55,7 @@ class Alko():
 
         qry = f'SELECT {str_fields} FROM juomat {str_where} ORDER BY RANDOM() LIMIT 1'
 
-        cursor.execute(qry,params_list)
+        cursor.execute(qry, params_list)
         row = cursor.fetchone()
 
         if row != None:
@@ -58,10 +65,10 @@ class Alko():
 
 
 def db_init():
-    cwd=os.getcwd()
-    conn=sqlite3.connect(cwd+'/alko.db')
-    data = pd.read_excel(cwd+'/alkon-hinnasto-tekstitiedostona.xlsx', skiprows=3)
-    print(data.head())
+    cwd = os.getcwd()
+    conn = sqlite3.connect(cwd+db_name)
+    data = pd.read_excel(
+        cwd+catalogue_name, skiprows=3)
 
     drop = "DROP TABLE juomat"
     create = """CREATE TABLE IF NOT EXISTS juomat (
@@ -108,9 +115,10 @@ def db_init():
 
     del data['hinnastokoodi']
 
-    #Some row is missing 'l' from the end and is thus interperetted as float
+    # Some row is missing 'l' from the end and is thus interperetted as float
     data['pullokoko'] = [str(s) for s in data['pullokoko']]
-    data['pullokoko'] = [float(s.replace(',','.').split(' ')[0]) for s in data['pullokoko']]
+    data['pullokoko'] = [float(s.replace(',', '.').split(' ')[0])
+                         for s in data['pullokoko']]
     data['hinta'] = [float(h) for h in data['hinta']]
     data['litrahinta'] = [float(h) for h in data['litrahinta']]
     data['uutuus'] = [u == 'uutuus' for u in data['uutuus']]
@@ -122,7 +130,5 @@ def db_init():
     data['vari_ebc'] = [float(v) for v in data['vari_ebc']]
     data['katkerot_ebu'] = [float(k) for k in data['katkerot_ebu']]
     data['energia'] = [float(e) for e in data['energia']]
-
-    print(data.head())
 
     data.to_sql('juomat', con=conn, if_exists='append', index=False)
