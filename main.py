@@ -191,7 +191,7 @@ async def send_doses(message, params):
 async def cancel_dose(message):
     dose = get_user_previous_dose(message.author.id)
     if (dose != None) and ((datetime.datetime.now().timestamp() - dose[list(dose.keys())[0]]['timestamp'])/60/60 < 1):
-        db.collection('users').document(user['id']).collection(
+        db.collection('users').document(str(message.author.id)).collection(
             'doses').document(list(dose.keys())[0]).delete()
         await message.channel.send('Annos poistettu')
     else:
@@ -334,11 +334,10 @@ def create_plot(message, duration, plot_users, date_high=None):
     vals = {}
     duration_seconds = duration*60*60
 
-    num_points = int(duration*points_per_hour)+1
+    num_points = int(duration*points_per_hour)
 
     # Interpolate to 1 second before date_high
-    t_vals = np.linspace(-num_points /
-                         points_per_hour*60*60, 0, num_points, endpoint=True)+date_high.timestamp()
+    t_vals = np.arange(-num_points, 1)*60+date_high.timestamp()
 
     dt_first = datetime.datetime.fromtimestamp(t_vals[0])
     dt_last = datetime.datetime.fromtimestamp(t_vals[-1])
@@ -387,46 +386,47 @@ def create_plot(message, duration, plot_users, date_high=None):
     elif spacing_minutes > 15:
         spacing_minutes = 15
     elif spacing_minutes > 10:
-        spacing_minutes = 10:
+        spacing_minutes = 10
     else:
         spacing_minutes = 5
 
     spacing = spacing_minutes*60
 
     num_labels = int(duration_seconds/(spacing))
-    locs_ind = (t_vals % spacing == 0)
-    labels = ['']*num_labels
 
-    locs = t_vals[locs_ind]
-    labels = ['']*len(locs)
+    locs = []  # t_vals[locs_ind]
+    labels = []  # *len(locs)
 
-    for i in range(len(locs)):
-        labels[i] = datetime.datetime.fromtimestamp(locs[i], tz=tz.gettz(
-        'Europe/Helsinki'))).strftime('%H:%M')
+    for i in range(len(t_vals)):
+        date = datetime.datetime.fromtimestamp(
+            t_vals[i], tz=tz.gettz('Europe/Helsinki'))
+        if (date.second+date.minute*60+date.hour*60*60) % spacing == 0:
+            labels.append(date.strftime('%H:%M'))
+            locs.append(t_vals[i])
 
-    plt.xticks(locs, labels, rotation = 0)
+    plt.xticks(locs, labels, rotation=0)
     plt.tight_layout()
     plt.savefig(plot_path)
 
 
-def update_user_base_info(message, user_dict, params = [None, None]):
-    uid=message.author.id
-    user_modified=False
+def update_user_base_info(message, user_dict, params=[None, None]):
+    uid = message.author.id
+    user_modified = False
 
     if (user_dict['name'] != message.author.name):
-        user_dict['name']=message.author.name
-        user_modified=True
+        user_dict['name'] = message.author.name
+        user_modified = True
 
     if ((params[0] != None) and (params[0] != user_dict['mass'])):
-        user_dict['mass']=float(params[0])
-        user_modified=True
+        user_dict['mass'] = float(params[0])
+        user_modified = True
 
     if ((params[1] != None) and (params[0] != user_dict['sex'])):
-        user_dict['sex']=params[1]
-        user_modified=True
+        user_dict['sex'] = params[1]
+        user_modified = True
 
     if user_modified:
-        user_ref=db.collection('users').document(str(uid))
+        user_ref = db.collection('users').document(str(uid))
         user_ref.update(
             {'name': user_dict['name'], 'mass': user_dict['mass'], 'sex': user_dict['sex']})
 
@@ -434,24 +434,24 @@ def update_user_base_info(message, user_dict, params = [None, None]):
 
 
 def update_user_guild_info(message, user):
-    uid=message.author.id
+    uid = message.author.id
 
     # If message is sent from a dm channel, author is instance of user, not member. User doesn't have nick attribute
     if (isinstance(message.author, discord.Member)):
-        gid=message.author.guild.id
-        sgid=str(gid)
+        gid = message.author.guild.id
+        sgid = str(gid)
 
-        user_modified=False
+        user_modified = False
         if sgid not in user['guilds']:
-            user['guilds'][sgid]={}
-            user['guilds'][sgid]['nick']=message.author.nick
-            user['guilds'][sgid]['member']=True
-            user['guilds'][sgid]['guildname']=message.guild.name
-            user_modified=True
+            user['guilds'][sgid] = {}
+            user['guilds'][sgid]['nick'] = message.author.nick
+            user['guilds'][sgid]['member'] = True
+            user['guilds'][sgid]['guildname'] = message.guild.name
+            user_modified = True
 
         if (message.author.nick != user['guilds'][sgid]['nick']) or (message.guild.name != user['guilds'][sgid]['guildname']):
-            user['guilds'][sgid]['nick']=message.author.nick
-            user_modified=True
+            user['guilds'][sgid]['nick'] = message.author.nick
+            user_modified = True
 
         if user_modified:
             db.collection('users').document(
@@ -461,15 +461,15 @@ def update_user_guild_info(message, user):
 
 
 def add_user(message, user):
-    uid=message.author.id
+    uid = message.author.id
 
     if user == None:
-        user={}
-        user['guilds']={}
-        user['name']=None
-        user['sex']=None
-        user['mass']=None
-        user['id']=str(uid)
+        user = {}
+        user['guilds'] = {}
+        user['name'] = None
+        user['sex'] = None
+        user['mass'] = None
+        user['id'] = str(uid)
         db.collection('users').document(str(uid)).set(user)
 
     update_user_base_info(message, user)
@@ -478,58 +478,58 @@ def add_user(message, user):
     return user
 
 
-def get_user_doses(uid, duration_seconds, date_high = None):
-    date_high=datetime.datetime.now() if date_high == None else date_high
-    doses_ref=db.collection('users').document(str(uid)).collection('doses').where(
+def get_user_doses(uid, duration_seconds, date_high=None):
+    date_high = datetime.datetime.now() if date_high == None else date_high
+    doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
         'timestamp', '>', date_high.timestamp()-duration_seconds).where('timestamp', '<', date_high.timestamp()).stream()
-    doses={}
+    doses = {}
 
     for dose in doses_ref:
-        doses[dose.id]=dose.to_dict()
+        doses[dose.id] = dose.to_dict()
 
     return doses
 
 
-def get_user_previous_dose(uid, time_low = 0, time_high = 90000000000):
-    doses_ref=db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
-        'timestamp', direction = firestore.Query.DESCENDING).limit(1).stream()
+def get_user_previous_dose(uid, time_low=0, time_high=90000000000):
+    doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
+        'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
 
-    doses={}
+    doses = {}
     for dose in doses_ref:
-        doses[dose.id]=dose.to_dict()
+        doses[dose.id] = dose.to_dict()
 
     return doses
 
 
 def add_dose(message, user):
-    user=add_user(message, user)
-    attributes=parse_params(message.content)
-    drink=db.collection('basic_drinks').document(
+    user = add_user(message, user)
+    attributes = parse_params(message.content)
+    drink = db.collection('basic_drinks').document(
         attributes[0]).get().to_dict()
 
     if drink != None:
-        new_dose=float(attributes[1] or drink['volume']) *
+        new_dose = float(attributes[1] or drink['volume']) * \
             float((attributes[2] or drink['alcohol']))/100
     else:
-        drink={'volume': None, 'alcohol': None}
+        drink = {'volume': None, 'alcohol': None}
 
         if ((attributes[0] == '%juoma') and (attributes[1] != None) and (attributes[2] != None)):
-            new_dose=float(attributes[1])*float(attributes[2])/100
+            new_dose = float(attributes[1])*float(attributes[2])/100
 
             if attributes[3] != None:
                 db.collection('basic_drinks').document(
                     '%' + attributes[3].replace('%', '')).set({'alcohol': float(attributes[2]), 'volume': float(attributes[1])})
 
         elif (attributes[0] == '%sama'):
-            previous_dose=list(get_user_previous_dose(
+            previous_dose = list(get_user_previous_dose(
                 message.author.id).values())[-1]
             if previous_dose == None:
                 return user, 0
             else:
-                attributes[0]=previous_dose['drink']
-                attributes[1]=previous_dose['volume']
-                attributes[2]=previous_dose['alcohol']
-                new_dose=previous_dose['pure_alcohol']
+                attributes[0] = previous_dose['drink']
+                attributes[1] = previous_dose['volume']
+                attributes[2] = previous_dose['alcohol']
+                new_dose = previous_dose['pure_alcohol']
         else:
             return 0
 
@@ -540,19 +540,19 @@ def add_dose(message, user):
 
 
 def per_mille(user):
-    mass=(user['mass'] or default_mass)
+    mass = (user['mass'] or default_mass)
 
-    g_alcohol, _, _=get_user_alcohol_grams(user, datetime.datetime.now())
+    g_alcohol, _, _ = get_user_alcohol_grams(user, datetime.datetime.now())
     if np.any(g_alcohol == None):
-        g_alcohol=[0]
+        g_alcohol = [0]
 
     return g_alcohol[-1]/water_multiplier[(user['sex'] or default_sex)]/mass, g_alcohol[-1]/0.1/mass
 
 
 def per_mille_values(user, duration_seconds, now, t_interp):
-    mass=(user['mass'] or default_mass)
+    mass = (user['mass'] or default_mass)
 
-    values, t_doses, zeros_to_insert=get_user_alcohol_grams(
+    values, t_doses, zeros_to_insert = get_user_alcohol_grams(
         user, now, duration_seconds)
 
     if np.any(values == None):
@@ -560,18 +560,19 @@ def per_mille_values(user, duration_seconds, now, t_interp):
 
     for i in range(len(zeros_to_insert)):
         t_doses.insert(zeros_to_insert[i][0]+i, zeros_to_insert[i][1])
-        values=np.insert(values, zeros_to_insert[i][0]+i, 0.0)
+        values = np.insert(values, zeros_to_insert[i][0]+i, 0.0)
 
-    t_doses.insert(0, t_interp[0]-1)
-    values=np.insert(values, 0, 0.0)
+    if t_interp[0] < t_doses[0]:
+        t_doses.insert(0, t_interp[0]-1)
+        values = np.insert(values, 0, 0.0)
 
-    f=interpolate.interp1d(t_doses, values, kind = 'linear')
-    interp_values=f(t_interp)
+    f = interpolate.interp1d(t_doses, values, kind='linear')
+    interp_values = f(t_interp)
 
     return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, values[1:-1], t_doses[1:-1]
 
 
-def get_user_alcohol_grams(user, now, duration_seconds = 86400):
+def get_user_alcohol_grams(user, now, duration_seconds=86400):
     # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
     # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
     # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
@@ -579,29 +580,29 @@ def get_user_alcohol_grams(user, now, duration_seconds = 86400):
     # Miehillä vettä painosta = 0,75*massa
     # Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
 
-    user_doses=get_user_doses(
+    user_doses = get_user_doses(
         user['id'], duration_seconds+pad_hours*60*60, now)
 
     if user_doses == None or len(user_doses) == 0:
         return [None]*3
 
-    mass=(user['mass'] or default_mass)
+    mass = (user['mass'] or default_mass)
 
-    t_doses=list(user_doses.keys())
+    t_doses = list(user_doses.keys())
     # Make last datapoint to be at current timestamp
     t_doses.append(int(now.timestamp()))
-    user_doses[str(int(now.timestamp()))]={'pure_alcohol': 0.0}
-    t_doses=[int(t) for t in t_doses]
+    user_doses[str(int(now.timestamp()))] = {'pure_alcohol': 0.0}
+    t_doses = [int(t) for t in t_doses]
 
-    g_alcohol=0.0
-    values=np.zeros(len(t_doses), dtype = float)
-    zeros_to_insert=[]
+    g_alcohol = 0.0
+    values = np.zeros(len(t_doses), dtype=float)
+    zeros_to_insert = []
 
     for i in range(len(t_doses)):
         if i == 0:
-            absorption_time=first_dose_drinking_time_minutes*60
+            absorption_time = first_dose_drinking_time_minutes*60
         else:
-            absorption_time=min(
+            absorption_time = min(
                 first_dose_drinking_time_minutes*60, t_doses[i]-t_doses[i-1])
 
             g_alcohol -= 0.1*mass*(max(t_doses[i]-t_doses[i-1], 1))/60/60

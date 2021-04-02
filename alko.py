@@ -6,7 +6,7 @@ import numpy as np
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
                       'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
 
-db_name = 'alko.db'
+db_name = '/alko.db'
 catalogue_name = '/alkon-hinnasto-tekstitiedostona.xlsx'
 
 
@@ -15,8 +15,8 @@ class Alko():
 
     def __init__(self):
         self.connection = sqlite3.connect(os.getcwd()+db_name)
-        query = 'SELECT name FROM sqlite_master WHERE type="table" AND name="juomat"'
-        cursor = self.connection()
+        query = 'SELECT name FROM sqlite_master WHERE type="table" AND name="juomat";'
+        cursor = self.connection.cursor()
         cursor.execute(query)
         row = cursor.fetchone()
         if row == None and os.path.isfile(os.getcwd()+catalogue_name):
