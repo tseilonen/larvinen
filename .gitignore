@@ -4,3 +4,4 @@
 firestore.py
 alko.db
 **xlsx
+**__pycache__**
