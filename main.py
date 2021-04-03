@@ -187,7 +187,7 @@ async def send_plot(message, user, params, capital_params):
         except:
             date_high = datetime.datetime.now()
 
-        date_high = round_date_to_minutes(date_high)
+        date_high = round_date_to_minutes(date_high, True)
 
         create_plot(db, message, int(
             params[1] or default_plot_hours), capital_params[2], date_high)

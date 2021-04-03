@@ -2,11 +2,13 @@ import datetime
 from alko import DRINK_QUERY_PARAMS
 
 
-def round_date_to_minutes(date):
+def round_date_to_minutes(date, round_up=False):
     """This function rounds datetime object to whole minutes
 
     Args:
         date (datetime): Date to be rounded
+        round_up (boolean): Boolean defining whether to round up (True) or down (False)
+            (default False)
 
     Returns:
         datetime: A datetime object rounded to whole minutes
@@ -14,7 +16,7 @@ def round_date_to_minutes(date):
     """
 
     timestamp = date.timestamp()
-    timestamp = int(timestamp/60)*60
+    timestamp = int(timestamp/60)*60+round_up*60
     return datetime.datetime.fromtimestamp(timestamp)
 
 
