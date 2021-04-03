@@ -1,5 +1,5 @@
 import datetime
-from alko import DRINK_QUERY_PARAMS
+from .alko import DRINK_QUERY_PARAMS
 
 
 def round_date_to_minutes(date, round_up=False):

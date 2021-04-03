@@ -10,11 +10,11 @@ from dateutil import tz
 from google.cloud import firestore
 from scipy import interpolate
 
-from alko import Alko, DRINK_QUERY_PARAMS
-from user import User
-from info_messages import *
-from util import *
-from plotting import create_plot, PLOT_PATH
+from .alko import Alko, DRINK_QUERY_PARAMS
+from .user import User
+from .info_messages import *
+from .util import *
+from .plotting import create_plot, PLOT_PATH
 
 client = discord.Client()
 db = firestore.Client()
@@ -289,7 +289,7 @@ async def sigterm(loop):
 
 
 def start(vals):
-    """Initialize vatiables and start async event loop
+    """Initialize variables and start async event loop
 
     Args:
         vals (list): A list containing the command line parameters used
