@@ -112,12 +112,30 @@ async def on_message(message):
 
 
 def get_user_dict(uid):
+    """A function to get user dict from the database
+
+    Args:
+        uid (int): An int representing the user id
+
+    Returns:
+        dict: A dictionary representing the user
+    """
+
     # returns None if there is no entry in db
     user = db.collection('users').document(str(uid)).get().to_dict()
     return user
 
 
 def parse_recommend(msg):
+    """A function to parse space separated keyed parameters from message
+
+    Args:
+        msg (str): A string containing the message that triggered the event
+
+    Returns:
+        dict: A dictionary of the parameters
+    """
+
     params = msg.split(' ')
     params_list = list(DRINK_QUERY_PARAMS.keys())
     params_dict = {}
@@ -132,16 +150,33 @@ def parse_recommend(msg):
 
 
 def parse_params(msg):
+    """A function to parse space separated parameters from the message
+
+    Args:
+        msg (str): A string containing the message that triggered the event
+
+    Returns:
+        list: A list of parameters
+    """
+
     msg_list = msg.split(' ')
     attributes = [None]*5
 
-    for i in range(len(msg_list)):
+    for i in min(range(len(msg_list)), len(attributes)):
         attributes[i] = msg_list[i]
 
     return attributes
 
 
 def delete_collection(coll_ref, batch_size):
+    """A recursive function to delete a specified collection
+
+    Args:
+        coll_ref (firestore.collection): Reference to the collection to be deletet
+        batch_size (int): An int specifying the batch size
+
+    """
+
     docs = coll_ref.limit(batch_size).stream()
     deleted = 0
 
@@ -155,6 +190,13 @@ def delete_collection(coll_ref, batch_size):
 
 
 def generate_drink_list():
+    """A function that sends a list of doses one has enjoyed to user requesting them
+
+    Returns:
+        str: A string containing all the drinks formatted to a table
+        list: A list containing all the drinks in the database
+    """
+
     drinks_ref = db.collection('basic_drinks').stream()
     drink_string = ''
     drink_list = []
@@ -167,6 +209,14 @@ def generate_drink_list():
 
 
 async def send_doses(message, params):
+    """A function that sends a list of doses one has enjoyed to user requesting them
+
+    Args:
+        message (discord.message): The message that triggered the event
+        params (list): A list of lower cased params
+
+    """
+
     now = datetime.datetime.now()
     date = datetime.datetime.fromisoformat(
         params[1]) if params[1] != None else datetime.datetime.fromtimestamp(now.timestamp()-7*24*60*60)
@@ -189,6 +239,13 @@ async def send_doses(message, params):
 
 
 async def cancel_dose(message):
+    """A function that removes a dose from the user. The dose must have been enjoyed within an hour
+
+    Args:
+        message (discord.message): The message that triggered the event
+
+    """
+
     dose = get_user_previous_dose(message.author.id)
     if (dose != None) and ((datetime.datetime.now().timestamp() - dose[list(dose.keys())[0]]['timestamp'])/60/60 < 1):
         db.collection('users').document(str(message.author.id)).collection(
@@ -199,6 +256,13 @@ async def cancel_dose(message):
 
 
 async def send_recommendation(message):
+    """A function that sends a product recommendation from Alko product catalogue to channel
+
+    Args:
+        message (discord.message): The message that triggered the event
+
+    """
+
     recommend_params = parse_recommend(message.content)
     random = alko.random_drink(recommend_params)
 
@@ -209,6 +273,16 @@ async def send_recommendation(message):
 
 
 async def send_plot(message, user, params, capital_params):
+    """A function that manages creating a plot and sending it
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user to be updated
+        params (list): A list having the lower cased params from the message
+        capital_params (list): A list of non lower cased params
+
+    """
+
     if user != None or (user == None and params[2] != 'false'):
         try:
             date_high = datetime.datetime.fromisoformat(
@@ -227,12 +301,31 @@ async def send_plot(message, user, params, capital_params):
 
 
 def round_date_to_minutes(date):
+    """This function rounds datetime object to whole minutes
+
+    Args:
+        date (datetime): Date to be rounded
+
+    Returns:
+        datetime: A datetime object rounded to whole minutes
+
+    """
+
     timestamp = date.timestamp()
     timestamp = int(timestamp/60)*60
     return datetime.datetime.fromtimestamp(timestamp)
 
 
 async def user_info_handling(message, user, params):
+    """This function takes care of user info event handling
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user to be processed
+        params (list): A list describing the params given from discord
+
+    """
+
     if params[1] == 'aseta':
         user = set_personal_info(message, params, user)
     elif params[1] == 'poista' and user != None:
@@ -259,6 +352,18 @@ async def user_info_handling(message, user, params):
 
 
 def set_personal_info(message, params, user):
+    """Updates user's personal info
+
+    Args:
+        message (discord.message): The message that triggered the event
+        params (list): A list having the lower cased params from the message
+        user (dict): A dictionary describing the user to be updated
+
+    Returns:
+        dict: A dictionary representing the user
+
+    """
+
     if user == None:
         user = add_user(message, user)
 
@@ -269,7 +374,18 @@ def set_personal_info(message, params, user):
     return user
 
 
-def user_name_or_nick(message, user, uid=None):
+def user_name_or_nick(message, user):
+    """Returns users nick if one is set for guild. Otherwise returns name.
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user to update
+
+    Returns:
+        str: User's name or nick
+
+    """
+
     if isinstance(message.author, discord.Member):
         try:
             return (user['guilds'][str(message.guild.id)]['nick'] or user['name'])
@@ -280,6 +396,14 @@ def user_name_or_nick(message, user, uid=None):
 
 
 async def send_per_milles(message, user):
+    """Sends user's per milles to the channel the command was sent from
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user whose state is to be calculated
+
+    """
+
     per_milles, sober_in = per_mille(user)
     name = user_name_or_nick(message, user)
 
@@ -288,12 +412,32 @@ async def send_per_milles(message, user):
 
 
 async def send_help(message):
+    """Sends help message to channel
+
+    Args:
+        message (discord.message): The message that triggered the event
+
+    """
+
     messages = help_messages()
     for msg in messages:
         await message.channel.send(msg)
 
 
 def get_guild_users(gid, duration_seconds, timestamp_high, user_list=None):
+    """Gets guild's users that have had a dose of alcohol before timestamp_high until duration_seconds
+
+    Args:
+        gid (int): An integer describing the guild's id
+        duration_seconds (int): An int defining the duration in which user has had to have a dose
+        timestamp_high (int): An int having the timestamp of last moment when user has had to have a dose
+        user_list (list): A list of guild users to be checked
+            (default is None)
+
+    Returns:
+        lsit: A list of user id's that have had a dose in the defined time period
+
+    """
     users = []
     users_with_doses = []
 
@@ -329,6 +473,16 @@ def get_guild_users(gid, duration_seconds, timestamp_high, user_list=None):
 
 
 def create_plot(message, duration, plot_users, date_high=None):
+    """Creates plot of the drunkness state
+
+    Args:
+        message (discord.message): The message that triggered the event
+        duration (int): An int describing the timespan to plot in hours
+        plot_users (str): A string describing the list of users to be plotted
+        date_hihg (datetime): A datetime object defining the last timestamp to plot
+
+    """
+
     date_high = round_date_to_minutes(
         datetime.datetime.now()) if date_high == None else date_high
     vals = {}
@@ -410,6 +564,19 @@ def create_plot(message, duration, plot_users, date_high=None):
 
 
 def update_user_base_info(message, user_dict, params=[None, None]):
+    """Updates user's base information
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user_dict (dict): A dictionary describing the user to update
+        params (list): A dictionary having the info to update. 0=mass, 1=sex['m'/'f']
+            (default [None, None])
+
+    Returns:
+        dict: A dictionary representing the user
+
+    """
+
     uid = message.author.id
     user_modified = False
 
@@ -434,6 +601,17 @@ def update_user_base_info(message, user_dict, params=[None, None]):
 
 
 def update_user_guild_info(message, user):
+    """Updates user's guild information
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user to update
+
+    Returns:
+        dict: A dictionary representing the user
+
+    """
+
     uid = message.author.id
 
     # If message is sent from a dm channel, author is instance of user, not member. User doesn't have nick attribute
@@ -461,6 +639,16 @@ def update_user_guild_info(message, user):
 
 
 def add_user(message, user):
+    """Adds user to database and updates user's info
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user to add or update
+
+    Returns:
+        dict: A dictionary representing the user
+
+    """
     uid = message.author.id
 
     if user == None:
@@ -479,6 +667,19 @@ def add_user(message, user):
 
 
 def get_user_doses(uid, duration_seconds, date_high=None):
+    """Gets user's all doses before date_high until duration_seconds has passed
+
+    Args:
+        uid (int): Id of the user being queried for
+        duration_seconds (int): An int describing the length of the query in seconds
+        date_high (datetime): A datetime object defining the upper limit for the dose timestamps
+            (default None)
+
+    Returns:
+        dict: A dictionary representing the user's doses in the time interval
+
+    """
+
     date_high = datetime.datetime.now() if date_high == None else date_high
     doses_ref = db.collection('users').document(str(uid)).collection('doses').where(
         'timestamp', '>', date_high.timestamp()-duration_seconds).where('timestamp', '<', date_high.timestamp()).stream()
@@ -491,6 +692,18 @@ def get_user_doses(uid, duration_seconds, date_high=None):
 
 
 def get_user_previous_dose(uid, time_low=0, time_high=90000000000):
+    """Gets users previous dose of alcohol
+
+    Args:
+        uid (int): Id of the user being queried for
+        time_low (int): An int describing the earliest valid timestamp for the previous dose
+        time_high (int): An int describing the latest valid timestamp for the previous dose
+
+    Returns:
+        dict: A dictionary representing the user's previous dose
+
+    """
+
     doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
         'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
 
@@ -502,6 +715,18 @@ def get_user_previous_dose(uid, time_low=0, time_high=90000000000):
 
 
 def add_dose(message, user):
+    """Adds as dose for user to the database
+
+    Args:
+        message (discord.message): The message that triggered the event
+        user (dict): A dictionary describing the user
+
+    Returns:
+        dict: A dictionary representing the user
+        bool: A boolean describing the success of adding a drink
+
+    """
+
     user = add_user(message, user)
     attributes = parse_params(message.content)
     drink = db.collection('basic_drinks').document(
@@ -517,8 +742,10 @@ def add_dose(message, user):
             new_dose = float(attributes[1])*float(attributes[2])/100
 
             if attributes[3] != None:
-                db.collection('basic_drinks').document(
-                    '%' + attributes[3].replace('%', '')).set({'alcohol': float(attributes[2]), 'volume': float(attributes[1])})
+                drink_name = '%' + attributes[3].replace('%', '')
+                attributes[0] = drink_name
+                db.collection('basic_drinks').document(drink_name).set(
+                    {'alcohol': float(attributes[2]), 'volume': float(attributes[1])})
 
         elif (attributes[0] == '%sama'):
             previous_dose = list(get_user_previous_dose(
@@ -531,7 +758,7 @@ def add_dose(message, user):
                 attributes[2] = previous_dose['alcohol']
                 new_dose = previous_dose['pure_alcohol']
         else:
-            return 0
+            return user, 0
 
     # Convert to int first to get rid of decimals
     db.collection('users').document(str(message.author.id)).collection(
@@ -540,6 +767,16 @@ def add_dose(message, user):
 
 
 def per_mille(user):
+    """Gets users blood alcohol content at the current timestamp
+
+    Args:
+        user (dict): A dictionary representing the user
+
+    Returns:
+        float: A float describing the current state of the user
+        float: A float describing the time in hours it takes the user to get sober 
+
+    """
     mass = (user['mass'] or default_mass)
 
     g_alcohol, _, _ = get_user_alcohol_grams(user, datetime.datetime.now())
@@ -550,6 +787,20 @@ def per_mille(user):
 
 
 def per_mille_values(user, duration_seconds, now, t_interp):
+    """Gets user's per mille values interpolated to t_interp timestamps
+
+    Args:
+        user (dict): A dictionary representing the user whose state is being queried
+        duration_seconds (int): An int used to define the duration of the interpolation
+        now (datetime): A datetime object defining the last moment of interpolation
+        t_interp (np.array): A numpy array defining the interpolation points
+
+    Returns:
+        np.array: An array having the interpolated points
+        np.array: An array having the points used for interpolation
+        list: A list having the timestamps of interpolation points
+
+    """
     mass = (user['mass'] or default_mass)
 
     values, t_doses, zeros_to_insert = get_user_alcohol_grams(
@@ -572,13 +823,28 @@ def per_mille_values(user, duration_seconds, now, t_interp):
     return interp_values/water_multiplier[(user['sex'] or default_sex)]/mass, values[1:-1], t_doses[1:-1]
 
 
+# https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
+# Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
+# Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
+# Naisilla vettä painosta = 0,66*massa
+# Miehillä vettä painosta = 0,75*massa
+# Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
+
+
 def get_user_alcohol_grams(user, now, duration_seconds=86400):
-    # https://www.terveyskirjasto.fi/dlk01084/alkoholihumala-ja-muita-alkoholin-valittomia-vaikutuksia?q=alkoholi%20palaminen
-    # Alkoholimäärä grammoina = 7.9 × (pullon tilavuus senttilitroina) × (alkoholipitoisuus tilavuusprosentteina)
-    # Veren alkoholipitoisuus promilleina = (alkoholimäärä grammoina) / 1 000 grammaa verta
-    # Naisilla vettä painosta = 0,66*massa
-    # Miehillä vettä painosta = 0,75*massa
-    # Nyrkkisääntö alkoholin palamiselle ilman tietoja, 0,1 g/h/kg
+    """Gets a single user's body alcohol content in grams, timestamps and zeros to insert for plotting
+
+    Args:
+        user (dict): A dictionary representing the user whose doses are being queried
+        now (datetime): A datetime object representing the last moment in time, to get the body alcohol content
+        duration_seconds (int): Int determining the period of querying the data before now
+            (default is 86400 seconds = 24 hours)
+
+    Returns:
+        np.array: an array of values representing the body alcohol content at specific times
+        list: a list that has the timestamps of the values
+        list: a list of timestamps and indices to insert zeros for when the alcohol content has reached zero
+    """
 
     user_doses = get_user_doses(
         user['id'], duration_seconds+pad_hours*60*60, now)
@@ -632,6 +898,11 @@ def get_user_alcohol_grams(user, now, duration_seconds=86400):
 
 
 async def message_channels(message):
+    """Sends a message to all channels named lärvinen
+
+    Args:
+        message (str): A string having the message to broadcast
+    """
     guilds = client.guilds
     for guild in guilds:
         for channel in guild.channels:
@@ -640,11 +911,22 @@ async def message_channels(message):
 
 
 async def sigterm(loop):
+    """Stops asyncio.loop
+
+    Args:
+        loop (asyncio.loop): Asyncio loop to stop
+    """
     await message_channels('Minut on sammutettu ylläpitoa varten')
     loop.stop()
 
 
 def start(vals):
+    """Initialize vatiables and start async event loop
+
+    Args:
+        vals (list): A list containing the command line parameters used
+    """
+
     global development
     development = True if vals[-1] == 'dev' else False
 
