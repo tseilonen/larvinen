@@ -6,8 +6,8 @@ import numpy as np
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
                       'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
 
-DB_NAME = '../data/alko.db'
-CATALOGUE_NAME = '../data/alkon-hinnasto-tekstitiedostona.xlsx'
+DB_NAME = 'data/alko.db'
+CATALOGUE_NAME = 'data/alkon-hinnasto-tekstitiedostona.xlsx'
 
 
 class Alko():

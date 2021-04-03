@@ -20,6 +20,12 @@ class User():
     changed_guild = {}
 
     def __init__(self, db, id):
+        """Initialize user
+
+        Args:
+            db (firestore.client): The database client
+            id (int): The id of the user
+        """
         self.id = str(id)
         user_dict = db.collection('users').document(self.id).get().to_dict()
 
