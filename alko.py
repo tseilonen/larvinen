@@ -6,23 +6,32 @@ import numpy as np
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
                       'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
 
-db_name = '/alko.db'
-catalogue_name = '/alkon-hinnasto-tekstitiedostona.xlsx'
+DB_NAME = '/alko.db'
+CATALOGUE_NAME = '/alkon-hinnasto-tekstitiedostona.xlsx'
 
 
 class Alko():
     connection = None
 
     def __init__(self):
-        self.connection = sqlite3.connect(os.getcwd()+db_name)
+        """Initialize the Alko db connection
+        """
+
+        self.connection = sqlite3.connect(os.getcwd()+DB_NAME)
         query = 'SELECT name FROM sqlite_master WHERE type="table" AND name="juomat";'
         cursor = self.connection.cursor()
         cursor.execute(query)
         row = cursor.fetchone()
-        if row == None and os.path.isfile(os.getcwd()+catalogue_name):
+        if row == None and os.path.isfile(os.getcwd()+CATALOGUE_NAME):
             db_init()
 
     def random_item(self):
+        """Get a random item from Alko product catalogue
+
+        Returns:
+            dict: A dictionary describing the random product
+        """
+
         cursor = self.connection.cursor()
         fields = ['numero', 'nimi', 'alkoholi', 'hinta', 'pullokoko']
         str_fields = str(fields)[1:-1].replace("\'", "")
@@ -32,6 +41,15 @@ class Alko():
         return({fields[i]: row[i] for i in range(len(fields))})
 
     def random_drink(self, params):
+        """Get a random item from Alko product catalogue
+
+        Args:
+            params (dict): A dictionary containing the query params
+
+        Returns:
+            dict: A dictionary describing the random product
+        """
+
         cursor = self.connection.cursor()
         fields = ['numero', 'nimi', 'alkoholi', 'hinta', 'pullokoko']
         str_fields = str(fields)[1:-1].replace("\'", "")
@@ -65,10 +83,13 @@ class Alko():
 
 
 def db_init():
+    """Initialize the Alko product catalogue database
+    """
+
     cwd = os.getcwd()
-    conn = sqlite3.connect(cwd+db_name)
+    conn = sqlite3.connect(cwd+DB_NAME)
     data = pd.read_excel(
-        cwd+catalogue_name, skiprows=3)
+        cwd+CATALOGUE_NAME, skiprows=3)
 
     drop = "DROP TABLE juomat"
     create = """CREATE TABLE IF NOT EXISTS juomat (
