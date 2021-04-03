@@ -162,7 +162,7 @@ def parse_params(msg):
     msg_list = msg.split(' ')
     attributes = [None]*5
 
-    for i in min(range(len(msg_list)), len(attributes)):
+    for i in range(min(len(msg_list), len(attributes))):
         attributes[i] = msg_list[i]
 
     return attributes

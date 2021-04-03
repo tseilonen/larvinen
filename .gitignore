@@ -5,3 +5,4 @@ firestore.py
 alko.db
 **xlsx
 **__pycache__**
+**log.txt
