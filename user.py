@@ -27,7 +27,8 @@ class User():
             self.sex = user_dict['sex']
             self.mass = user_dict['mass']
             self.name = user_dict['name']
-            self.guilds = user_dict['guilds']
+            if 'guilds' in user_dict:
+                self.guilds = user_dict['guilds']
             self.in_db = True
         else:
             self.sex = None
@@ -42,7 +43,7 @@ class User():
 
     @sex.setter
     def sex(self, sex):
-        if sex in ['m', 'f']:
+        if sex != None and sex in ['m', 'f']:
             self.__sex = sex
         else:
             self.__sex = None
@@ -61,7 +62,7 @@ class User():
 
     @mass.setter
     def mass(self, mass):
-        if mass > 0 and mass < 300:
+        if mass != None and mass > 0 and mass < 300:
             self.__mass = mass
         else:
             self.__mass = None
@@ -125,7 +126,10 @@ class User():
         if len(self.changed_guild) > 0:
             self.changed_data['guilds'][sgid] = self.changed_data['guilds'][sgid]
 
-        self.update_database(db)
+        if self.in_db:
+            self.update_database(db)
+        else:
+            self.insert_to_database(db)
 
     def delete_user(self, db):
         """Deletes user from database, along with one's doses
@@ -151,6 +155,18 @@ class User():
         if len(self.changed_data) > 0:
             db.collection('users').document(self.id).update(self.changed_data)
             self.changed_data = {}
+
+    def insert_to_database(self, db):
+        """Updates user's info to database
+
+        Args:
+            db (firestore.Client): The database client
+
+        """
+
+        db.collection('users').document(self.id).set(self.changed_data)
+        self.changed_data = {}
+        self.in_db = True
 
     def name_or_nick(self, message):
         """Returns users nick if one is set for guild. Otherwise returns name.

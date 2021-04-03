@@ -50,7 +50,7 @@ def create_plot(db, message, duration, plot_users, date_high=None):
 
     if isinstance(message.author, discord.Member):
         if plot_users != None and plot_users.find('[') != -1 and plot_users.find(']') != -1:
-            guild_users = get_guild_users(message.guild.id, duration_seconds, date_high.timestamp(), plot_users.replace(
+            guild_users = get_guild_users(db, message.guild.id, duration_seconds, date_high.timestamp(), plot_users.replace(
                 '[', '').replace(']', '').split(','))
         else:
             guild_users = get_guild_users(

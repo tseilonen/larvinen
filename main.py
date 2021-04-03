@@ -55,7 +55,7 @@ async def on_message(message):
     msg = message.content
 
     # Get user object
-    user = User(db, message)
+    user = User(db, message.author.id)
     params = parse_params(msg)
 
     if msg.startswith('%alkoholin_vaikutukset'):
@@ -118,7 +118,7 @@ async def send_doses(message, user, params):
     date = datetime.datetime.fromisoformat(
         params[1]) if params[1] != None else datetime.datetime.fromtimestamp(now.timestamp()-7*24*60*60)
     since = (now.timestamp()-date.timestamp())
-    doses = user.get_doses(since)
+    doses = user.get_doses(db, since)
     len_str = len(str(doses))
     no_messages = int(len_str/2000.0+1)
 
@@ -215,6 +215,7 @@ async def user_info_handling(message, user, params):
             params_dict['sex'] = params[3]
 
         user.update_info(db, message, params_dict)
+        await asyncio.sleep(async_wait_seconds)
 
     elif params[1] == 'poista' and user.in_db:
         if params[2] == None:
