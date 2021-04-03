@@ -1,4 +1,4 @@
 #!/bin/bash
 
 pkill python
-python larvinen/main.py "$1" >> log.txt & disown
+python larvinen/main.py "$1" >> data/log.txt & disown
