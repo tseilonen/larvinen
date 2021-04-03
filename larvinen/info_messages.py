@@ -1,4 +1,4 @@
-from .alko import DRINK_QUERY_PARAMS
+from alko import DRINK_QUERY_PARAMS
 
 
 def alco_info_message():
