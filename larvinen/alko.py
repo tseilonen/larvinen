@@ -86,12 +86,9 @@ def db_init():
     """Initialize the Alko product catalogue database
     """
 
-    cwd = os.getcwd()
     conn = sqlite3.connect(DB_NAME)
-    data = pd.read_excel(
-        cwd+CATALOGUE_NAME, skiprows=3)
+    data = pd.read_excel(CATALOGUE_NAME, skiprows=3)
 
-    drop = "DROP TABLE juomat"
     create = """CREATE TABLE IF NOT EXISTS juomat (
                                     id integer PRIMARY KEY,
                                     numero text,
@@ -126,7 +123,6 @@ def db_init():
                                 );"""
 
     c = conn.cursor()
-    c.execute(drop)
     c.execute(create)
 
     new_columns = ['numero', 'nimi', 'valmistaja', 'pullokoko', 'hinta', 'litrahinta', 'hinnastokoodi', 'uutuus', 'tyyppi', 'alatyyppi', 'erityisryhma', 'oluttyyppi', 'valmistusmaa', 'alue', 'vuosikerta', 'etikettimerkinnat',

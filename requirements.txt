@@ -1,0 +1,7 @@
+discord
+openpyxl
+numpy
+matplotlib
+google-cloud-firestore
+scipy
+pandas
