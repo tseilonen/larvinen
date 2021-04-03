@@ -10,7 +10,7 @@ from .util import round_date_to_minutes
 from .guilds import get_guild_users
 
 POINTS_PER_HOUR = 60
-PLOT_PATH = os.getcwd()+'/plot.png'
+PLOT_PATH = '../data/plot.png'
 
 
 def create_plot(db, message, duration, plot_users, date_high=None):

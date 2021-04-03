@@ -6,8 +6,8 @@ import numpy as np
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
                       'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
 
-DB_NAME = '/alko.db'
-CATALOGUE_NAME = '/alkon-hinnasto-tekstitiedostona.xlsx'
+DB_NAME = '../data/alko.db'
+CATALOGUE_NAME = '../data/alkon-hinnasto-tekstitiedostona.xlsx'
 
 
 class Alko():
@@ -17,12 +17,12 @@ class Alko():
         """Initialize the Alko db connection
         """
 
-        self.connection = sqlite3.connect(os.getcwd()+DB_NAME)
+        self.connection = sqlite3.connect(DB_NAME)
         query = 'SELECT name FROM sqlite_master WHERE type="table" AND name="juomat";'
         cursor = self.connection.cursor()
         cursor.execute(query)
         row = cursor.fetchone()
-        if row == None and os.path.isfile(os.getcwd()+CATALOGUE_NAME):
+        if row == None and os.path.isfile(CATALOGUE_NAME):
             db_init()
 
     def random_item(self):
@@ -87,7 +87,7 @@ def db_init():
     """
 
     cwd = os.getcwd()
-    conn = sqlite3.connect(cwd+DB_NAME)
+    conn = sqlite3.connect(DB_NAME)
     data = pd.read_excel(
         cwd+CATALOGUE_NAME, skiprows=3)
 

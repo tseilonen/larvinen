@@ -1,8 +1,4 @@
-**pickle
-**json
-**png
-firestore.py
-alko.db
-**xlsx
-**__pycache__**
+**.vscode
+**__pycache__
 **log.txt
+**data
