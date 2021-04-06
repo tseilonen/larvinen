@@ -1,9 +1,11 @@
 import discord
 import datetime
 import numpy as np
-from util import delete_collection
+
 from google.cloud import firestore
 from scipy import interpolate
+
+from .util import delete_collection
 
 PAD_HOURS = 96.0
 DEFAULT_MASS = 80
@@ -16,6 +18,7 @@ WATER_MULTIPLIER = {'m': 0.75, 'f': 0.66}
 
 class User():
     guilds = {}
+    high_score = {}
     changed_data = {}
     changed_guild = {}
 
@@ -35,6 +38,8 @@ class User():
             self.name = user_dict['name']
             if 'guilds' in user_dict:
                 self.guilds = user_dict['guilds']
+            if 'high_scroe' in user_dict:
+                self.high_score = user_dict['high_score']
             self.in_db = True
         else:
             self.sex = None
@@ -230,8 +235,8 @@ class User():
 
         """
 
-        doses_ref = db.collection('users').document(self.id).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
-            'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
+        doses_ref = db.collection('users').document(self.id).collection('doses').where('timestamp', '>=', time_low).where(
+            'timestamp', '<=', time_high).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
 
         doses = {}
         for dose in doses_ref:
@@ -264,7 +269,7 @@ class User():
             if ((params[0] == '%juoma') and (params[1] != None) and (params[2] != None)):
                 new_dose = float(params[1])*float(params[2])/100
 
-                if params[3] != None:
+                if params[3] != None and params[3] != 'public':
                     drink_name = '%' + params[3].replace('%', '')
                     params[0] = drink_name
                     db.collection('basic_drinks').document(drink_name).set(
@@ -282,9 +287,26 @@ class User():
             else:
                 return 0
 
+        # Convert time to be utc always
+        t = int(message.created_at.replace(
+            tzinfo=datetime.timezone.utc).timestamp())
+
+        document = {'drink': params[0], 'volume': (params[1] or drink['volume']), 'alcohol': (
+            params[2] or drink['alcohol']), 'pure_alcohol': new_dose,
+            'timestamp': t,
+            'user': str(message.author.id)}
+
+        guild = ['private']
+        if params[3] == 'public':
+            guild.extend(self.guilds_to_list())
+        elif isinstance(message.author, discord.Member):
+            guild.append(str(message.author.guild.id))
+
+        document['guild'] = guild
+
         # Convert to int first to get rid of decimals
         db.collection('users').document(self.id).collection(
-            'doses').document(str(int(message.created_at.timestamp()))).set({'drink': params[0], 'volume': (params[1] or drink['volume']), 'alcohol': (params[2] or drink['alcohol']), 'pure_alcohol': new_dose, 'timestamp': int(message.created_at.timestamp())})
+            'doses').document(str(int(message.created_at.timestamp()))).set(document)
         return 1
 
     def per_mille(self, db):
@@ -414,23 +436,42 @@ class User():
 
         return interp_values/WATER_MULTIPLIER[(self.sex or DEFAULT_SEX)]/mass, values[1:-1], t_doses[1:-1]
 
+    def guilds_to_list(self):
+        """Converts user's guild memberships to as list of strings
+
+        Returns:
+            list: A list of strings representing user's guild memberships
+        """
+
+        list_of_gids = []
+
+        for gid in self.guilds:
+            list_of_gids.append(str(gid))
+
+        return list_of_gids
+
     @staticmethod
-    def get_previous_dose_by_uid(db, uid, time_low=0, time_high=90000000000):
+    def get_previous_dose_by_uid(db, uid, time_low=0, time_high=90000000000, guild='private'):
         """Gets users previous dose of alcohol
 
         Args:
             db (firestore.Client): The database client
             uid (int): An int describing the user's id
             time_low (int): An int describing the earliest valid timestamp for the previous dose
+                (default is 0)
             time_high (int): An int describing the latest valid timestamp for the previous dose
+                (default is 90000000000)
+            guild (str): An string describing the guilds id
+                (default is private)
+
 
         Returns:
             dict: A dictionary representing the user's previous dose
 
         """
 
-        doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where('timestamp', '<=', time_high).order_by(
-            'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
+        doses_ref = db.collection('users').document(str(uid)).collection('doses').where('timestamp', '>=', time_low).where(
+            'timestamp', '<=', time_high).where('guild', 'array_contains', guild).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
 
         doses = {}
         for dose in doses_ref:

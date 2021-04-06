@@ -1,4 +1,4 @@
-from user import User
+from .user import User
 
 
 def get_guild_users(db, gid, duration_seconds, timestamp_high, user_list=None):
@@ -42,7 +42,7 @@ def get_guild_users(db, gid, duration_seconds, timestamp_high, user_list=None):
 
     for uid in users:
         dose_in_range = User.get_previous_dose_by_uid(
-            db, int(uid), timestamp_high-duration_seconds, timestamp_high)
+            db, int(uid), timestamp_high-duration_seconds, timestamp_high, str(gid))
 
         if dose_in_range != None and len(dose_in_range) == 1:
             users_with_doses.append(uid)

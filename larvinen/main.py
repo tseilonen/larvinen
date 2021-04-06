@@ -10,11 +10,11 @@ from dateutil import tz
 from google.cloud import firestore
 from scipy import interpolate
 
-from alko import Alko, DRINK_QUERY_PARAMS
-from user import User
-from info_messages import *
-from util import *
-from plotting import create_plot, PLOT_PATH
+from .alko import Alko, DRINK_QUERY_PARAMS
+from .user import User
+from .info_messages import *
+from .util import *
+from .plotting import create_plot, PLOT_PATH
 
 client = discord.Client()
 db = firestore.Client()
@@ -189,10 +189,13 @@ async def send_plot(message, user, params, capital_params):
 
         date_high = round_date_to_minutes(date_high, True)
 
-        create_plot(db, message, int(
+        success = create_plot(db, message, int(
             params[1] or default_plot_hours), capital_params[2], date_high)
 
-        await message.channel.send(file=discord.File(open(PLOT_PATH, 'rb'), 'larvit.png'))
+        if success:
+            await message.channel.send(file=discord.File(open(PLOT_PATH, 'rb'), 'larvit.png'))
+        else:
+            await message.channel.send('Aikavälillä ei ole humaltuneita käyttäjiä!')
     else:
         await message.channel.send('Et ole käyttänyt palvelujani aiemmin. Et voi plotata humalatiloja.')
 
@@ -288,15 +291,15 @@ async def sigterm(loop):
     loop.stop()
 
 
-def start(vals):
+def start(param):
     """Initialize variables and start async event loop
 
     Args:
-        vals (list): A list containing the command line parameters used
+        param (bool): A boolean defining whether to start in development mode
     """
 
     global development
-    development = True if vals[-1] == 'dev' else False
+    development = param
 
     global alko
     alko = Alko()
@@ -309,12 +312,9 @@ def start(vals):
 
     try:
         loop.run_until_complete(client.start(os.getenv('DISCORDTOKEN')))
-    except:
+    except Exception as ex:
+        print(ex)
         loop.run_until_complete(client.logout())
         # cancel all tasks lingering
     finally:
         loop.close()
-
-
-if __name__ == "__main__":
-    start(sys.argv)

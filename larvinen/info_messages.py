@@ -1,4 +1,4 @@
-from alko import DRINK_QUERY_PARAMS
+from .alko import DRINK_QUERY_PARAMS
 
 
 def alco_info_message():
@@ -19,7 +19,7 @@ def help_messages():
 %alkoholin_vaikutukset: \t Antaa tietoa humalatilan vaikutuksista.\n
 %kuvaaja <h> <user_list> <date>: \t Plottaa kuvaajan viimeisen <h> tunnin aikana alkoholia nauttineiden humalatilan. Jotta henkilö voi näkyä palvelimella kuvaajassa, on hänen tullut ilmoittaa vähintään yksi annos tältä palvelimelta. <h> oletusarvo on 24h. <user_list> on lista henkilöitä, esim [Tino,Aleksi,Henri]. Henkilöt tulee olla erotettu pilkuilla ilman välilyöntejä. Ilman listaa plotataan kaikki palvelimen käyttäjät. <date> on päivämäärä iso formattissa, josta vähennettään <h>, jotta saadaan kuvaajan x-akseli. Esim "%kuvaaja 24 [Tino] 2021-03-30T20:30:00"\n
 %humala: \t Lärvinen tulostaa humalatilasi voimakkuuden, ja arvion selviämisajankohdasta.\n
-%olut/%aolut/%viini/%viina/%siideri <cl> <vol>: \t Lisää  <cl> senttilitraa <%-vol> vahvuista juomaa nautittujen annosten listaasi. <cl> ja <vol> ovat vapaaehtoisia. Käytä desimaalierottimena pistettä. Esim: "%olut 40 7.2" tai "%viini"\n
+%olut/%aolut/%viini/%viina/%siideri <cl> <vol> <public>: \t Lisää  <cl> senttilitraa <%-vol> vahvuista juomaa nautittujen annosten listaasi. <cl>, <vol> ja <public> ovat vapaaehtoisia. Käytä desimaalierottimena pistettä. Mikäli haluat lähettää juomia yksityisesti, tai toiselta palvelimelta, mutta haluat näkyä käyttämiesi palvelinten kuvaajissa, aseta kaikki parametrit, ja kirjoita loppuun public. Esim: "%olut 40 7.2 public" tai "%viini"\n
 %juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n
 %sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen\n''')
 

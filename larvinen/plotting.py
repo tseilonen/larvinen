@@ -5,9 +5,9 @@ import os
 import matplotlib.pyplot as plt
 from dateutil import tz
 
-from user import User
-from util import round_date_to_minutes
-from guilds import get_guild_users
+from .user import User
+from .util import round_date_to_minutes
+from .guilds import get_guild_users
 
 POINTS_PER_HOUR = 60
 PLOT_PATH = 'data/plot.png'
@@ -42,21 +42,22 @@ def create_plot(db, message, duration, plot_users, date_high=None):
     else:
         title_date = dt_first.strftime('%d.%m.%Y')
 
+    guild_users = [str(message.author.id)]
+    if isinstance(message.author, discord.Member):
+        if plot_users != None and plot_users.find('[') != -1 and plot_users.find(']') != -1:
+            guild_users.extend(get_guild_users(db, message.guild.id, duration_seconds, date_high.timestamp(), plot_users.replace(
+                '[', '').replace(']', '').split(',')))
+        else:
+            guild_users.extend(get_guild_users(
+                db, message.guild.id, duration_seconds, date_high.timestamp()))
+
+    guild_users = np.unique(guild_users)
+
     plt.clf()
     plt.figure(figsize=(12, 8))
     plt.title(f'Käyttäjien humalatilat {title_date}')
     plt.ylabel('Humalan voimakkuus [‰]')
     plt.xlabel('Aika')
-
-    if isinstance(message.author, discord.Member):
-        if plot_users != None and plot_users.find('[') != -1 and plot_users.find(']') != -1:
-            guild_users = get_guild_users(db, message.guild.id, duration_seconds, date_high.timestamp(), plot_users.replace(
-                '[', '').replace(']', '').split(','))
-        else:
-            guild_users = get_guild_users(
-                db, message.guild.id, duration_seconds, date_high.timestamp())
-    else:
-        guild_users = [str(message.author.id)]
 
     for uid in guild_users:
         uid = int(uid)
@@ -68,6 +69,9 @@ def create_plot(db, message, duration, plot_users, date_high=None):
             ind_doses = np.unique(ind_doses[ind_doses >= 0])
             plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
                      label=user.name_or_nick(message))
+
+    if len(plt.gca().lines) == 0:
+        return 0
 
     plt.legend()
     plt.grid()
@@ -100,3 +104,5 @@ def create_plot(db, message, duration, plot_users, date_high=None):
     plt.xticks(locs, labels, rotation=0)
     plt.tight_layout()
     plt.savefig(PLOT_PATH)
+
+    return 1
