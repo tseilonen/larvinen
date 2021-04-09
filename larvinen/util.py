@@ -79,7 +79,7 @@ def parse_recommend(msg):
         for drink_param in params_list:
             if param.startswith(drink_param):
                 params_dict[drink_param] = param.split(
-                    drink_param)[1].replace(':', '')
+                    drink_param)[1].replace(':', '').replace('_', ' ')
 
     return params_dict
 

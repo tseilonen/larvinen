@@ -4,7 +4,8 @@ import pandas as pd
 import numpy as np
 
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
-                      'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
+                      'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?',
+                      'luonnehdinta': ' luonnehdinta like ?'}
 
 DB_NAME = 'data/alko.db'
 CATALOGUE_NAME = 'data/alkon-hinnasto-tekstitiedostona.xlsx'
@@ -51,11 +52,12 @@ class Alko():
         """
 
         cursor = self.connection.cursor()
-        fields = ['numero', 'nimi', 'alkoholi', 'hinta', 'pullokoko']
+        fields = ['numero', 'nimi', 'alkoholi',
+                  'hinta', 'pullokoko', 'luonnehdinta']
         str_fields = str(fields)[1:-1].replace("\'", "")
         # {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?', 'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?'}
         params_dict = DRINK_QUERY_PARAMS
-        str_where = ''
+        str_where = 'WHERE valikoima == "vakiovalikoima"'
         params_list = []
         for param in list(params_dict.keys()):
             if param in params:
@@ -64,7 +66,7 @@ class Alko():
                 else:
                     str_where += ' AND'
 
-                if param == 'tyyppi' or param == 'alatyyppi':
+                if param == 'tyyppi' or param == 'alatyyppi' or param == 'luonnehdinta':
                     params_list.append('%'+params[param]+'%')
                 else:
                     params_list.append(params[param])
