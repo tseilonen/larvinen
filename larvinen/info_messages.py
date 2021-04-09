@@ -34,7 +34,7 @@ def help_messages():
     message += "parametrit, ja kirjoita loppuun public. Esim: '%olut 40 7.2 public' tai '%viini'.\n\n"
     message += "%juoma <cl> <vol> <nimi>: \t Lisää cl senttilitraa %-vol vahvuista juomaa nautittujen annosten listaasi. Kaksi ensimmäistä "
     message += "parametria ovat pakollisia. Mikäli asetat myös nimen, tallenetaan juoma menuun.\n\n"
-    message += "%sama: \t Lisää nautittujen annosten listaasi saman juoman, kuin edellinen.\n\n"
+    message += "%sama: \t Lisää nautittujen annosten listaasi saman juoman kuin edellinen.\n\n"
 
     messages.append(message)
 
@@ -51,6 +51,7 @@ def help_messages():
     message += f"Mahdolliset ehdot: {list(DRINK_QUERY_PARAMS.keys())}.\n\n"
     message += "%tuotetyypit: \t Lärvinen lähettää kaikki tuotetyypit, joita voit käyttää %suosittele komennon tyyppi parametrin arvona.\n\n"
     message += "%alatyypit: \t Lärvinen lähettää kaikki alatyypit, joita voit käyttää %suosittele komennon alatyyppi parametrin arvona.\n\n"
+    message += "%highscore: \t Lärvinen lähettää kovimmat humalatilasi"
     message += "%help: \t Tulostaa tämän tekstin"
 
     messages.append(message)

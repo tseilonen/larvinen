@@ -11,7 +11,7 @@ from google.cloud import firestore
 from scipy import interpolate
 
 from .alko import Alko, DRINK_QUERY_PARAMS
-from .user import User
+from .user import User, HIGH_SCORE_NULL
 from .info_messages import *
 from .util import *
 from .plotting import create_plot, PLOT_PATH
@@ -95,6 +95,9 @@ async def on_message(message):
     elif msg.startswith('%annokset'):
         await send_doses(message, user, params)
 
+    elif msg.startswith('%highscore'):
+        await send_highscore(message, user)
+
     else:
         drink_ref = db.collection('basic_drinks').document(
             params[0]).get().to_dict()
@@ -102,13 +105,13 @@ async def on_message(message):
         if drink_ref != None or sum([msg.startswith(drink) for drink in list(special_drinks.keys())]) == 1:
             success = user.add_dose(db, message, params)
 
-            if not success:
+            if success == None:
                 await message.author.send('Juoman lisääminen epäonnistui')
             else:
                 if not isinstance(message.channel, discord.channel.DMChannel):
                     await message.delete()
-            await asyncio.sleep(async_wait_seconds)
-            await send_per_milles(message, user)
+
+                await send_per_milles(message, user, success['per_milles'], success['sober_in'])
 
 
 async def send_doses(message, user, params):
@@ -245,16 +248,22 @@ async def user_info_handling(message, user, params):
         await message.delete()
 
 
-async def send_per_milles(message, user):
+async def send_per_milles(message, user, per_milles=None, sober_in=None):
     """Sends user's per milles to the channel the command was sent from
 
     Args:
         message (discord.message): The message that triggered the event
         user (dict): A dictionary describing the user whose state is to be calculated
+        per_milles (float): A float describing the drunkness of the user
+            (default is None)
+        sober_in (float): A float describing the time in hours how long it takes for the user to be sober
+            (default is None)
 
     """
 
-    per_milles, sober_in = user.per_mille(db)
+    if per_milles == None or sober_in == None:
+        per_milles, sober_in = user.per_mille(db)
+
     name = user.name_or_nick(message)
 
     await message.channel.send(f'{name}: {per_milles:.2f} promillea\n'
@@ -296,6 +305,27 @@ async def send_product_subtypes(message):
     await message.channel.send(msg)
 
 
+async def send_highscore(message, user):
+    """Sends the requested highscore
+
+    Args:
+        message (discord.Message): The message that triggered the event
+        user (User): User object describing the uesr that sent the message
+    """
+
+    msg = "Kovimmat humalatilasi: \n"
+    msg += f"Kaikkien aikojen: \t {(user.high_score['ath']['per_mille'] or 0):.2f} ‰ \t"
+    msg += f"{datetime.datetime.fromtimestamp((user.high_score['ath']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
+    msg += f"Vuoden alusta: \t {(user.high_score['ytd']['per_mille'] or 0):.2f} ‰ \t"
+    msg += f"{datetime.datetime.fromtimestamp((user.high_score['ytd']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
+    msg += f"Viimeisen kuukauden ajalta: \t {(user.high_score['this_month']['per_mille'] or 0):.2f} ‰ \t"
+    msg += f"{datetime.datetime.fromtimestamp((user.high_score['this_month']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
+    msg += f"Viimeisen viikon ajalta: \t {(user.high_score['this_week']['per_mille'] or 0):.2f} ‰ \t"
+    msg += f"{datetime.datetime.fromtimestamp((user.high_score['this_week']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
+
+    await message.channel.send(msg)
+
+
 async def message_channels(message):
     """Sends a message to all channels named lärvinen
 
@@ -319,6 +349,31 @@ async def sigterm(loop):
     loop.stop()
 
 
+async def null_high_scores():
+    while True:
+        now = datetime.datetime.now()
+        tomorrow = datetime.date.today()+datetime.timedelta(days=1)
+        tomorrow = datetime.datetime(
+            tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, 1, 0)
+        to_wait = tomorrow.timestamp()-now.timestamp()
+        await asyncio.sleep(to_wait)
+
+        high_score_to_zero = {}
+        if tomorrow.weekday == 0:
+            high_score_to_zero['this_week'] = HIGH_SCORE_NULL
+        if tomorrow.day == 1:
+            high_score_to_zero['this_month'] = HIGH_SCORE_NULL
+            if tomorrow.month == 1:
+                high_score_to_zero['ytd'] = HIGH_SCORE_NULL
+
+        if len(high_score_to_zero) > 0:
+            users = db.collection('users').stream()
+
+            for user in users:
+                db.collection('users').document(user.id).update(
+                    {'high_score': high_score_to_zero})
+
+
 def start(param):
     """Initialize variables and start async event loop
 
@@ -339,7 +394,9 @@ def start(param):
         signal.SIGINT, lambda: asyncio.create_task(sigterm(loop)))
 
     try:
-        loop.run_until_complete(client.start(os.getenv('DISCORDTOKEN')))
+        loop.create_task(null_high_scores())
+        loop.create_task(client.start(os.getenv('DISCORDTOKEN')))
+        loop.run_forever()
     except Exception as ex:
         print(ex)
         loop.run_until_complete(client.logout())

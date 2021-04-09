@@ -14,11 +14,13 @@ FIRST_DOSE_DRINKING_TIME_MINUTES = 20
 
 # Males have 75% of their weight worth water, females 66%
 WATER_MULTIPLIER = {'m': 0.75, 'f': 0.66}
+HIGH_SCORE_NULL = {'per_mille': None, 'timestamp': None}
 
 
 class User():
     guilds = {}
-    high_score = {}
+    high_score = {'ath': HIGH_SCORE_NULL, 'ytd': HIGH_SCORE_NULL,
+                  'this_month': HIGH_SCORE_NULL, 'this_week': HIGH_SCORE_NULL}
     changed_data = {}
     changed_guild = {}
 
@@ -38,7 +40,7 @@ class User():
             self.name = user_dict['name']
             if 'guilds' in user_dict:
                 self.guilds = user_dict['guilds']
-            if 'high_scroe' in user_dict:
+            if 'high_score' in user_dict:
                 self.high_score = user_dict['high_score']
             self.in_db = True
         else:
@@ -140,6 +142,7 @@ class User():
         if self.in_db:
             self.update_database(db)
         else:
+            self.changed_data['high_score'] = self.high_score
             self.insert_to_database(db)
 
     def delete_user(self, db):
@@ -244,6 +247,26 @@ class User():
 
         return doses
 
+    def update_high_score(self, db, score_new, timestamp_new):
+        """Updates high score to object
+
+        Args:
+            db (firestore.Client): The database client
+            score_new (float): Float describing the per_mille value of the user at a given time
+            timestamp_new (int): An int describing the unix timestamp of the dose
+        """
+
+        changed = False
+        for timeframe, values in self.high_score.items():
+            if (values['per_mille'] or 0) < score_new:
+                self.high_score[timeframe]['per_mille'] = score_new
+                self.high_score[timeframe]['timestamp'] = timestamp_new
+                changed = True
+
+        if changed:
+            db.collection('users').document(str(self.id)).update(
+                {'high_score': self.high_score})
+
     def add_dose(self, db, message, params):
         """Adds as dose for user to the database
 
@@ -285,7 +308,7 @@ class User():
                     params[2] = previous_dose['alcohol']
                     new_dose = previous_dose['pure_alcohol']
             else:
-                return 0
+                return None
 
         # Convert time to be utc always
         t = int(message.created_at.replace(
@@ -304,10 +327,48 @@ class User():
 
         document['guild'] = guild
 
+        per_mille, sober_in = self.per_mille_not_inserted(db, document)
+
+        self.update_high_score(db, per_mille, t)
+
         # Convert to int first to get rid of decimals
         db.collection('users').document(self.id).collection(
             'doses').document(str(int(message.created_at.timestamp()))).set(document)
-        return 1
+
+        return {'per_milles': per_mille, 'sober_in': sober_in}
+
+    def per_mille_not_inserted(self, db, new_dose):
+        """Gets users blood alcohol content at the current timestamp
+
+        Args:
+            db (firestore.Client): The database client
+            new_dose (dict): A dictionary representing the new dose that's not inserted yet
+
+        Returns:
+            float: A float describing the current state of the user
+            float: A float describing the time in hours it takes the user to get sober
+
+        """
+        mass = (self.mass or DEFAULT_MASS)
+
+        g_alcohol, t_doses, _ = self.get_alcohol_grams(
+            db, datetime.datetime.now())
+
+        if np.any(g_alcohol == None):
+            g_alcohol = [0]
+            t_doses = 0
+
+        duration = new_dose['timestamp']-t_doses[-1]
+        g_alcohol = max(g_alcohol[-1] - 0.1*mass*duration/60/60, 0)
+
+        if g_alcohol == 0:
+            g_alcohol += new_dose['pure_alcohol']*7.9
+            g_alcohol -= 0.1*mass*FIRST_DOSE_DRINKING_TIME_MINUTES/60
+            g_alcohol = max(g_alcohol, 0.0)
+        else:
+            g_alcohol += new_dose['pure_alcohol']*7.9
+
+        return g_alcohol/WATER_MULTIPLIER[(self.sex or DEFAULT_SEX)]/mass, g_alcohol/0.1/mass
 
     def per_mille(self, db):
         """Gets users blood alcohol content at the current timestamp
@@ -317,7 +378,7 @@ class User():
 
         Returns:
             float: A float describing the current state of the user
-            float: A float describing the time in hours it takes the user to get sober 
+            float: A float describing the time in hours it takes the user to get sober
 
         """
         mass = (self.mass or DEFAULT_MASS)
@@ -450,7 +511,7 @@ class User():
 
         return list_of_gids
 
-    @staticmethod
+    @ staticmethod
     def get_previous_dose_by_uid(db, uid, time_low=0, time_high=90000000000, guild='private'):
         """Gets users previous dose of alcohol
 
