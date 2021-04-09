@@ -83,6 +83,34 @@ class Alko():
         else:
             return None
 
+    def product_types(self):
+        """Get list of product types
+
+        Returns:
+            list: List of product types
+        """
+
+        query = 'SELECT DISTINCT tyyppi FROM juomat;'
+        cursor = self.connection.cursor()
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        return [row[0] for row in rows if row[0] != None]
+
+    def product_subtypes(self):
+        """Get list of product subtypes
+
+        Returns:
+            list: List of product types
+        """
+
+        query = 'SELECT DISTINCT alatyyppi FROM juomat;'
+        cursor = self.connection.cursor()
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        return [row[0] for row in rows if row[0] != None]
+
 
 def db_init():
     """Initialize the Alko product catalogue database

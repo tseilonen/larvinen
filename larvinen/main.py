@@ -64,6 +64,12 @@ async def on_message(message):
     elif msg.startswith('%help'):
         await send_help(message)
 
+    elif msg.startswith('%tuotetyypit'):
+        await send_product_types(message)
+
+    elif msg.startswith('%alatyypit'):
+        await send_product_subtypes(message)
+
     elif msg.startswith('%menu'):
         drink_list, _ = generate_drink_list(db)
         await message.channel.send(f'{drink_list}')
@@ -266,6 +272,28 @@ async def send_help(message):
     messages = help_messages()
     for msg in messages:
         await message.channel.send(msg)
+
+
+async def send_product_types(message):
+    """Sends help message about whicch product types are in Alko product catalogue
+
+    Args:
+        message (discord.message): The message that triggered the event
+    """
+
+    msg = f"Tässä lista kaikista tuotetyypeistä, joita voit käyttää %suosittele komennon tyyppi parametrin arvona: {alko.product_types()}"
+    await message.channel.send(msg)
+
+
+async def send_product_subtypes(message):
+    """Sends help message about whicch product subtypes are in Alko product catalogue
+
+    Args:
+        message (discord.message): The message that triggered the event
+    """
+
+    msg = f"Tässä lista kaikista alatyypeistä, joita voit käyttää %suosittele komennon alatyytyyppi parametrin arvona: {alko.product_subtypes()}"
+    await message.channel.send(msg)
 
 
 async def message_channels(message):
