@@ -179,3 +179,7 @@ def db_init():
     data['energia'] = [float(e) for e in data['energia']]
 
     data.to_sql('juomat', con=conn, if_exists='append', index=False)
+
+
+if __name__ == "__main__":
+    db_init()

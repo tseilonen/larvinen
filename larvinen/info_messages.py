@@ -47,7 +47,7 @@ def help_messages():
     message += "%tiedot <aseta massa sukupuoli>/<poista>: \t Lärvinen lähettää sinulle omat tietosi. Komennolla '%tiedot aseta <massa> <m/f>' "
     message += "saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa "
     message += "yksityisviestillä Lärviselle. Komennolla '%tiedot poista' saat poistettua kaikki tietosi Lärvisen tietokannasta.\n\n"
-    message += "%suosittele < ehto: arvo > : \t Lärvinen suosittelee sinulle alkon valikoimasta satunnaista juomaa antamillasi ehdoilla. "
+    message += "%suosittele < ehto: arvo > : \t Lärvinen suosittelee sinulle alkon vakiovalikoimasta satunnaista juomaa antamillasi ehdoilla. "
     message += f"Mahdolliset ehdot: {list(DRINK_QUERY_PARAMS.keys())}.\n\n"
     message += "%tuotetyypit: \t Lärvinen lähettää kaikki tuotetyypit, joita voit käyttää %suosittele komennon tyyppi parametrin arvona.\n\n"
     message += "%alatyypit: \t Lärvinen lähettää kaikki alatyypit, joita voit käyttää %suosittele komennon alatyyppi parametrin arvona.\n\n"
