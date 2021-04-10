@@ -1,14 +1,11 @@
 import discord
 import os
-import matplotlib.pyplot as plt
 import datetime
-import numpy as np
 import sys
 import signal
 import asyncio
 from dateutil import tz
 from google.cloud import firestore
-from scipy import interpolate
 
 from .alko import Alko, DRINK_QUERY_PARAMS
 from .user import User, HIGH_SCORE_NULL
@@ -318,9 +315,9 @@ async def send_highscore(message, user):
     msg += f"{datetime.datetime.fromtimestamp((user.high_score['ath']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
     msg += f"Vuoden alusta: \t {(user.high_score['ytd']['per_mille'] or 0):.2f} ‰ \t"
     msg += f"{datetime.datetime.fromtimestamp((user.high_score['ytd']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
-    msg += f"Viimeisen kuukauden ajalta: \t {(user.high_score['this_month']['per_mille'] or 0):.2f} ‰ \t"
+    msg += f"Tässä kuussa: \t {(user.high_score['this_month']['per_mille'] or 0):.2f} ‰ \t"
     msg += f"{datetime.datetime.fromtimestamp((user.high_score['this_month']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
-    msg += f"Viimeisen viikon ajalta: \t {(user.high_score['this_week']['per_mille'] or 0):.2f} ‰ \t"
+    msg += f"Tällä viikolla: \t {(user.high_score['this_week']['per_mille'] or 0):.2f} ‰ \t"
     msg += f"{datetime.datetime.fromtimestamp((user.high_score['this_week']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
 
     await message.channel.send(msg)

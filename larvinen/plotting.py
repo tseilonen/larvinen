@@ -67,8 +67,10 @@ def create_plot(db, message, duration, plot_users, date_high=None):
         if sum(vals[uid]) > 0:
             ind_doses = np.searchsorted(t_vals, t_doses, side='right')-1
             ind_doses = np.unique(ind_doses[ind_doses >= 0])
+            lw = 3 if uid == message.author.id else 1.5
+
             plt.plot(t_vals, vals[uid], '-o', markevery=ind_doses,
-                     label=user.name_or_nick(message))
+                     label=user.name_or_nick(message), linewidth=lw)
 
     if len(plt.gca().lines) == 0:
         return 0

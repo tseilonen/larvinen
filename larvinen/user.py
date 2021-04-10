@@ -131,13 +131,14 @@ class User():
                 self.changed_guild[sgid]['member'] = True
                 self.changed_guild[sgid]['guildname'] = message.guild.name
 
-            if (message.author.nick != self.guilds[sgid]['nick']) or (message.guild.name != self.guilds[sgid]['guildname']):
+            if (sgid not in self.guilds) or (message.author.nick != self.guilds[sgid]['nick']) or (message.guild.name != self.guilds[sgid]['guildname']):
                 self.changed_guild[sgid] = {}
                 self.changed_guild[sgid]['nick'] = message.author.nick
                 self.changed_guild[sgid]['guildname'] = message.guild.name
 
         if len(self.changed_guild) > 0:
-            self.changed_data['guilds'][sgid] = self.changed_data['guilds'][sgid]
+            self.changed_data['guilds'] = {}
+            self.changed_data['guilds'][sgid] = self.changed_guild[sgid]
 
         if self.in_db:
             self.update_database(db)
@@ -356,7 +357,7 @@ class User():
 
         if np.any(g_alcohol == None):
             g_alcohol = [0]
-            t_doses = 0
+            t_doses = [0]
 
         duration = new_dose['timestamp']-t_doses[-1]
         g_alcohol = max(g_alcohol[-1] - 0.1*mass*duration/60/60, 0)
