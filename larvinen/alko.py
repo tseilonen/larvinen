@@ -82,10 +82,11 @@ class Alko():
         cursor.execute(qry, params_list)
         row = cursor.fetchone()
 
-        if 'myymälä' in params.keys():
-            stores = get_alko_stock(row[0])
-            fields.append('saatavuus')
-            row.append(stores)
+        stores = get_alko_stock(row[0])
+        fields.append('saatavuus')
+        row.append(stores)
+
+        # if 'myymälä' in params.keys():
 
         if row != None:
             return {fields[i]: row[i] for i in range(len(fields))}
