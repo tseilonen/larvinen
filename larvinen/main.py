@@ -170,7 +170,7 @@ async def send_recommendation(message):
     random = alko.random_drink(recommend_params)
 
     if random != None:
-        await message.channel.send(f'Tuote: {random["nimi"]}\nVahvuus: {(random["alkoholi"] or 0):.1f} %\nPullokoko: {(random["pullokoko"] or 0):.2f} l\nHinta: {random["hinta"]:.2f} €\nLinkki: https://alko.fi/tuotteet/{random["numero"]}')
+        await message.channel.send(f'Tuote: {random["nimi"]}\nVahvuus: {(random["alkoholi"] or 0):.1f} %\nPullokoko: {(random["pullokoko"] or 0):.2f} l\nHinta: {random["hinta"]:.2f} €\nSaatavuus: {random["saatavuus"]} \nLinkki: https://alko.fi/tuotteet/{random["numero"]}')
     else:
         await message.channel.send('Hakuehdoilla ei löytynyt yhtään juomaa')
 

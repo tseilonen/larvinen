@@ -2,6 +2,9 @@ import sqlite3
 import os
 import pandas as pd
 import numpy as np
+import requests
+from bs4 import BeautifulSoup
+import json
 
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
                       'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?',
@@ -9,6 +12,7 @@ DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyy
 
 DB_NAME = 'data/alko.db'
 CATALOGUE_NAME = 'data/alkon-hinnasto-tekstitiedostona.xlsx'
+STORE_JSON_PATH = 'data/stores.json'
 
 
 class Alko():
@@ -78,6 +82,11 @@ class Alko():
         cursor.execute(qry, params_list)
         row = cursor.fetchone()
 
+        if 'myymälä' in params.keys():
+            stores = get_alko_stock(row[0])
+            fields.append('saatavuus')
+            row.append(stores)
+
         if row != None:
             return {fields[i]: row[i] for i in range(len(fields))}
         else:
@@ -110,6 +119,29 @@ class Alko():
         rows = cursor.fetchall()
 
         return [row[0] for row in rows if row[0] != None]
+
+
+def get_alko_stock(id):
+    """Get products stock in stores
+
+    Args:
+        id (int): An integer describing the product
+
+    Returns:
+        dictionary: A dictionary representing stores and their stock saldos
+    """
+
+    url = 'https://www.alko.fi/INTERSHOP/web/WFS/Alko-OnlineShop-Site/fi_FI/-/EUR/ViewProduct-Include?SKU='
+
+    page = requests.get(url+str(id))
+    soup = BeautifulSoup(page.content, 'html.parser')
+
+    list_of_stores = soup.text.split('Määrä')[1].replace(
+        '\n\n\n\n', '\n').strip().split('\n')
+
+    stores = {list_of_stores[i]: list_of_stores[i+1]
+              for i in np.arange(int(len(list_of_stores)/2))*2}
+    return stores
 
 
 def db_init():
@@ -181,5 +213,23 @@ def db_init():
     data.to_sql('juomat', con=conn, if_exists='append', index=False)
 
 
+def load_list_of_alkos():
+    """Loads a list of alkos to a json file
+    """
+
+    url = 'https://www.alko.fi/myymalat-palvelut'
+    page = requests.get(url)
+    soup = BeautifulSoup(page.content, 'html.parser')
+
+    stores = []
+    shop_soup = soup.find_all('div', class_='outletType_myymalat')
+
+    for store in shop_soup:
+        stores.append(store.find(class_='name').text)
+
+    json.dump({'stores': stores}, open(STORE_JSON_PATH, 'w'))
+
+
 if __name__ == "__main__":
     db_init()
+    load_list_of_alkos()

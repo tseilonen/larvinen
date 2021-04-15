@@ -51,7 +51,7 @@ def help_messages():
     message += f"Mahdolliset ehdot: {list(DRINK_QUERY_PARAMS.keys())}.\n\n"
     message += "%tuotetyypit: \t Lärvinen lähettää kaikki tuotetyypit, joita voit käyttää %suosittele komennon tyyppi parametrin arvona.\n\n"
     message += "%alatyypit: \t Lärvinen lähettää kaikki alatyypit, joita voit käyttää %suosittele komennon alatyyppi parametrin arvona.\n\n"
-    message += "%highscore: \t Lärvinen lähettää kovimmat humalatilasi"
+    message += "%highscore: \t Lärvinen lähettää kovimmat humalatilasi.\n\n"
     message += "%help: \t Tulostaa tämän tekstin"
 
     messages.append(message)
