@@ -7,7 +7,7 @@ import asyncio
 from dateutil import tz
 from google.cloud import firestore
 
-from .alko import Alko, DRINK_QUERY_PARAMS
+from .alko import Alko, distance_to_alko, DRINK_QUERY_PARAMS
 from .user import User, HIGH_SCORE_NULL
 from .info_messages import *
 from .util import *
@@ -43,8 +43,8 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    # Return immediately if message is from self
-    if message.author == client.user:
+    # Return immediately if message is from self, or doesn't start with %
+    if message.author == client.user or message.content[0] != '%':
         return
 
     capital_params = parse_params(message.content)
@@ -85,6 +85,9 @@ async def on_message(message):
 
     elif msg.startswith('%suosittele'):
         await send_recommendation(message)
+
+    elif msg.startswith('%alkoon'):
+        await send_distance_to_alko(message, user, params)
 
     elif msg.startswith('%peruuta'):
         await cancel_dose(message, user)
@@ -321,6 +324,28 @@ async def send_highscore(message, user):
     msg += f"{datetime.datetime.fromtimestamp((user.high_score['this_week']['timestamp'] or 0)).strftime('%d.%m.%Y')} \n"
 
     await message.channel.send(msg)
+
+
+async def send_distance_to_alko(message, user, params):
+    """Sends the distance and time to get to alko
+
+    Args:
+        message (discord.Message): The message that triggered the event
+        user (User): User object describing the uesr that sent the message
+        params (list): A list having the lower cased params from the message
+    """
+
+    if params[3] != None:
+        result = distance_to_alko(params[1], params[2], params[3])
+    elif params[2] != None:
+        result = distance_to_alko(params[1], params[2])
+    else:
+        result = None
+
+    if result != None:
+        await message.channel.send(f'Matka alkoon on {result["distance"]}. Matkan kesto on {result["duration"]}.')
+    else:
+        await message.channel.send('Matkan hakeminen epäonnistui')
 
 
 async def message_channels(message):

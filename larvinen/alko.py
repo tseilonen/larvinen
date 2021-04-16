@@ -5,10 +5,11 @@ import numpy as np
 import requests
 from bs4 import BeautifulSoup
 import json
+import googlemaps
 
 DRINK_QUERY_PARAMS = {'hinta_min': ' hinta > ?', 'hinta_max': ' hinta < ?', 'tyyppi': ' tyyppi like ?',
                       'vol_min': ' alkoholi > ?', 'vol_max': ' alkoholi < ?', 'alatyyppi': ' alatyyppi like ?',
-                      'luonnehdinta': ' luonnehdinta like ?'}
+                      'luonnehdinta': ' luonnehdinta like ?', 'myymälä': ''}
 
 DB_NAME = 'data/alko.db'
 CATALOGUE_NAME = 'data/alkon-hinnasto-tekstitiedostona.xlsx'
@@ -17,6 +18,7 @@ STORE_JSON_PATH = 'data/stores.json'
 
 class Alko():
     connection = None
+    stores = None
 
     def __init__(self):
         """Initialize the Alko db connection
@@ -27,8 +29,11 @@ class Alko():
         cursor = self.connection.cursor()
         cursor.execute(query)
         row = cursor.fetchone()
+
         if row == None and os.path.isfile(CATALOGUE_NAME):
             db_init()
+
+        self.stores = json.load(open(STORE_JSON_PATH, 'r'))
 
     def random_item(self):
         """Get a random item from Alko product catalogue
@@ -63,8 +68,9 @@ class Alko():
         params_dict = DRINK_QUERY_PARAMS
         str_where = 'WHERE valikoima == "vakiovalikoima"'
         params_list = []
+
         for param in list(params_dict.keys()):
-            if param in params:
+            if param in params and param != 'myymälä':
                 if len(str_where) == 0:
                     str_where = 'WHERE'
                 else:
@@ -79,14 +85,34 @@ class Alko():
 
         qry = f'SELECT {str_fields} FROM juomat {str_where} ORDER BY RANDOM() LIMIT 1'
 
-        cursor.execute(qry, params_list)
-        row = cursor.fetchone()
+        i = 0
+        max_products = 10
+        while i < max_products:
+            cursor.execute(qry, params_list)
+            row = cursor.fetchone()
 
-        stores = get_alko_stock(row[0])
-        fields.append('saatavuus')
-        row.append(stores)
+            if row == None:
+                break
 
-        # if 'myymälä' in params.keys():
+            row = list(row)
+            stores = get_alko_stock(row[0])
+
+            if 'myymälä' in params.keys():
+                if params['myymälä'].lower() in ''.join(self.stores["stores"]).lower():
+                    for store in stores.keys():
+                        if params['myymälä'].lower() in store.lower():
+                            fields.append('saatavuus')
+                            row.append(stores)
+                            i = max_products
+                            break
+                else:
+                    return None
+            else:
+                fields.append('saatavuus')
+                row.append(stores)
+                i = max_products
+
+            i += 1
 
         if row != None:
             return {fields[i]: row[i] for i in range(len(fields))}
@@ -143,6 +169,36 @@ def get_alko_stock(id):
     stores = {list_of_stores[i]: list_of_stores[i+1]
               for i in np.arange(int(len(list_of_stores)/2))*2}
     return stores
+
+
+def distance_to_alko(origin, destination, mode='driving'):
+    """Get distance to specified alko
+
+    Args:
+        origin (str): A string descrribing the origin address
+        destination (str): A string describing the destination address
+
+    Returns:
+        dictionary: A dictionary having the driving times and distances
+    """
+
+    gmaps = googlemaps.Client(key=os.getenv('GOOGLE_MAPS_KEY'))
+    distance_matrix = gmaps.distance_matrix(origin, destination, mode=mode)
+
+    if distance_matrix['rows'][0]['elements'][0]['status'] == 'OK':
+        if int(distance_matrix['rows'][0]['elements'][0]['duration']['value']/60) > 60:
+            hours = int(distance_matrix['rows'][0]
+                        ['elements'][0]['duration']['value']/60/60)
+            mins = int(distance_matrix['rows'][0]['elements'][0]['duration']['value']/60) - int(
+                distance_matrix['rows'][0]['elements'][0]['duration']['value']/60/60)*60
+            duration = f'{hours} h {mins} min'
+        else:
+            duration = f"{int(distance_matrix['rows'][0]['elements'][0]['duration']['value']/60)} min"
+
+        return {'distance': distance_matrix['rows'][0]['elements'][0]['distance']['text'],
+                'duration': duration}
+    else:
+        return None
 
 
 def db_init():

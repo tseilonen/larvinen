@@ -35,19 +35,19 @@ class User():
         user_dict = db.collection('users').document(self.id).get().to_dict()
 
         if user_dict != None:
-            self.sex = user_dict['sex']
-            self.mass = user_dict['mass']
-            self.name = user_dict['name']
-            if 'guilds' in user_dict:
-                self.guilds = user_dict['guilds']
-            if 'high_score' in user_dict:
-                self.high_score = user_dict['high_score']
+            self.sex = user_dict['sex'] if 'sex' in user_dict else None
+            self.mass = user_dict['mass'] if 'mass' in user_dict else None
+            self.name = user_dict['name'] if 'name' in user_dict else None
+            self.address = user_dict['address'] if 'address' in user_dict else None
+            self.guilds = user_dict['guilds'] if 'guilds' in user_dict else None
+            self.high_score = user_dict['high_score'] if 'high_score' in user_dict else None
             self.in_db = True
         else:
             self.sex = None
             self.mass = None
             self.name = None
             self.guilds = None
+            self.address = None
             self.in_db = False
 
     @property
@@ -95,6 +95,14 @@ class User():
     @name.setter
     def name(self, name):
         self.__name = name
+
+    @property
+    def address(self):
+        return self.__address
+
+    @address.setter
+    def address(self, address):
+        self.__address = address
 
     def asdict(self):
         return {'id': self.id, 'name': self.name, 'mass': self.mass, 'sex': self.sex, 'in_db': self.in_db}

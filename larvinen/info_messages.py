@@ -48,10 +48,12 @@ def help_messages():
     message += "saat asetettua omat tietosi botille. Oletuksena kaikki ovat 80 kg miehiä. Esim: %tiedot aseta 80 m. Tiedot voi asettaa "
     message += "yksityisviestillä Lärviselle. Komennolla '%tiedot poista' saat poistettua kaikki tietosi Lärvisen tietokannasta.\n\n"
     message += "%suosittele < ehto: arvo > : \t Lärvinen suosittelee sinulle alkon vakiovalikoimasta satunnaista juomaa antamillasi ehdoilla. "
+    message += "Mikäli käytät myymälää ehtona, arvotaan max 5 tuotetta, ja palautetaan 5. tuote, vaikka ko. tuotte ei myymälässä olisikaan. "
     message += f"Mahdolliset ehdot: {list(DRINK_QUERY_PARAMS.keys())}.\n\n"
     message += "%tuotetyypit: \t Lärvinen lähettää kaikki tuotetyypit, joita voit käyttää %suosittele komennon tyyppi parametrin arvona.\n\n"
     message += "%alatyypit: \t Lärvinen lähettää kaikki alatyypit, joita voit käyttää %suosittele komennon alatyyppi parametrin arvona.\n\n"
     message += "%highscore: \t Lärvinen lähettää kovimmat humalatilasi.\n\n"
+    message += "%alkoon <lähtöosoite> <alko> <metodi>: \t Lärvinen lähettää matkan ja siirtymäajan lähtöosoitteesta alkoon. Metodi on oletuksena kävely, mutta voi olla myös driving.\n\n"
     message += "%help: \t Tulostaa tämän tekstin"
 
     messages.append(message)
