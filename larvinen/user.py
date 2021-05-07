@@ -39,8 +39,8 @@ class User():
             self.mass = user_dict['mass'] if 'mass' in user_dict else None
             self.name = user_dict['name'] if 'name' in user_dict else None
             self.address = user_dict['address'] if 'address' in user_dict else None
-            self.guilds = user_dict['guilds'] if 'guilds' in user_dict else None
-            self.high_score = user_dict['high_score'] if 'high_score' in user_dict else None
+            self.guilds = user_dict['guilds'] if 'guilds' in user_dict else self.guilds
+            self.high_score = user_dict['high_score'] if 'high_score' in user_dict else self.high_score
             self.in_db = True
         else:
             self.sex = None
@@ -289,6 +289,8 @@ class User():
 
         """
 
+        self.update_info(db, message)
+
         drink = db.collection('basic_drinks').document(
             params[0]).get().to_dict()
 
@@ -323,8 +325,8 @@ class User():
         t = int(message.created_at.replace(
             tzinfo=datetime.timezone.utc).timestamp())
 
-        document = {'drink': params[0], 'volume': (params[1] or drink['volume']), 'alcohol': (
-            params[2] or drink['alcohol']), 'pure_alcohol': new_dose,
+        document = {'drink': params[0], 'volume': (float(params[1]) or drink['volume']), 'alcohol': (
+            float(params[2]) or drink['alcohol']), 'pure_alcohol': new_dose,
             'timestamp': t,
             'user': str(message.author.id)}
 

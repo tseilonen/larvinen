@@ -197,9 +197,13 @@ async def send_plot(message, user, params, capital_params):
             date_high = datetime.datetime.now()
 
         date_high = round_date_to_minutes(date_high, True)
+        hours = int(params[1] or default_plot_hours)
 
-        success = create_plot(db, message, int(
-            params[1] or default_plot_hours), capital_params[2], date_high)
+        if hours > 240:
+            hours = 240
+            await message.channel.send('Maksimi plottauspituus on 240 h.')
+
+        success = create_plot(db, message, hours, capital_params[2], date_high)
 
         if success:
             await message.channel.send(file=discord.File(open(PLOT_PATH, 'rb'), 'larvit.png'))
@@ -380,20 +384,19 @@ async def null_high_scores():
         to_wait = tomorrow.timestamp()-now.timestamp()
         await asyncio.sleep(to_wait)
 
-        high_score_to_zero = {}
-        if tomorrow.weekday == 0:
-            high_score_to_zero['this_week'] = HIGH_SCORE_NULL
-        if tomorrow.day == 1:
-            high_score_to_zero['this_month'] = HIGH_SCORE_NULL
-            if tomorrow.month == 1:
-                high_score_to_zero['ytd'] = HIGH_SCORE_NULL
-
-        if len(high_score_to_zero) > 0:
+        if tomorrow.weekday == 0 or tomorrow.day == 1:
             users = db.collection('users').stream()
 
             for user in users:
+                high_score = user.get('high_score')
+                if tomorrow.weekday == 0:
+                    high_score['this_week'] = HIGH_SCORE_NULL
+                if tomorrow.day == 1:
+                    high_score['this_month'] = HIGH_SCORE_NULL
+                    if tomorrow.month == 1:
+                        high_score['ytd'] = HIGH_SCORE_NULL
                 db.collection('users').document(user.id).update(
-                    {'high_score': high_score_to_zero})
+                    {'high_score': high_score})
 
 
 def start(param):
